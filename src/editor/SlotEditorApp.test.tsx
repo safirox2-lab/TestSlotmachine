@@ -845,6 +845,99 @@ describe("SlotEditorApp", () => {
     act(() => root.unmount());
   });
 
+  it("keeps uploaded symbol image cards the same size before and during reel motion", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("scale", 1.4);
+      useEditorStore.getState().addReel();
+      useEditorStore
+        .getState()
+        .setLayerSymbolImages("reel-card-1-1", [
+          { name: "symbol-001.png", src: "blob:symbol-001.png" },
+        ]);
+      root.render(<SlotEditorApp />);
+    });
+
+    const staticCard = host.querySelector<HTMLElement>('[data-layer-id="reel-card-1-1"]');
+    const staticImage = staticCard?.querySelector<HTMLImageElement>('[data-symbol-image="1"]');
+
+    expect(staticCard?.style.width).toBe("216px");
+    expect(staticCard?.style.height).toBe("259.2px");
+    expect(staticCard?.style.getPropertyValue("--slot-layer-size")).toBe("");
+    expect(staticImage?.src).toBe("blob:symbol-001.png");
+
+    const spinButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]');
+
+    act(() => {
+      spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(80);
+    });
+
+    const motionSymbol = host.querySelector<HTMLElement>('[data-reel-motion-symbol="1-1"]');
+    const motionImage = motionSymbol?.querySelector<HTMLImageElement>(
+      '[data-reel-motion-symbol-image="1"]',
+    );
+
+    expect(motionSymbol?.style.width).toBe(staticCard?.style.width);
+    expect(motionSymbol?.style.height).toBe(staticCard?.style.height);
+    expect(motionImage?.src).toBe(staticImage?.src);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps the stopped reel result the same size as the grid before spinning", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+    const cssPath = join(process.cwd(), "src/editor/slot-editor.css");
+    const css = readFileSync(cssPath, "utf8");
+    const reelCardRuleStart = css.indexOf(".slot-editor__reel-card {");
+    const reelCardRuleEnd = css.indexOf("}", reelCardRuleStart);
+    const reelCardRule = css.slice(reelCardRuleStart, reelCardRuleEnd);
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelStopMode("all-at-once");
+      useEditorStore.getState().setReelSetting("scale", 1.4);
+      useEditorStore.getState().addReel();
+      useEditorStore
+        .getState()
+        .setLayerSymbolImages("reel-card-1-1", [
+          { name: "symbol-001.png", src: "blob:symbol-001.png" },
+        ]);
+      root.render(<SlotEditorApp />);
+    });
+
+    const staticCard = host.querySelector<HTMLElement>('[data-layer-id="reel-card-1-1"]');
+    const spinButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]');
+
+    expect(staticCard?.style.width).toBe("216px");
+    expect(staticCard?.style.height).toBe("259.2px");
+    expect(reelCardRule).toContain("padding: 0;");
+
+    act(() => {
+      spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5440);
+    });
+
+    const stoppedSymbol = host.querySelector<HTMLElement>('[data-reel-motion-symbol="1-1"]');
+    const stoppedImage = stoppedSymbol?.querySelector<HTMLImageElement>(
+      '[data-reel-motion-symbol-image="1"]',
+    );
+
+    expect(stoppedSymbol?.className).toContain("is-stopped");
+    expect(stoppedSymbol?.style.width).toBe(staticCard?.style.width);
+    expect(stoppedSymbol?.style.height).toBe(staticCard?.style.height);
+    expect(stoppedSymbol?.style.getPropertyValue("--slot-layer-size")).toBe("");
+    expect(stoppedImage?.src).toBe("blob:symbol-001.png");
+
+    act(() => root.unmount());
+  });
+
   it("renders a frameless canvas without the middle guide board", () => {
     const root = renderEditor();
     const cssPath = join(process.cwd(), "src/editor/slot-editor.css");

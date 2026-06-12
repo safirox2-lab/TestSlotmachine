@@ -560,6 +560,15 @@ export function EditorCanvas() {
         layer.symbolIndex === undefined
           ? undefined
           : symbolImagesByIndex.get(layer.symbolIndex)?.[0];
+      const cardSize = REEL_CARD_SIZE_BY_ASPECT[layer.canvasAspectRatio];
+      const cardStyle = {
+        "--slot-layer-color": layer.color,
+        fontSize: `${toStablePixelValue(16 * layer.size)}px`,
+        height: `${toStablePixelValue(cardSize.height * layer.size)}px`,
+        left: `${layer.x}px`,
+        top: `${layer.y}px`,
+        width: `${toStablePixelValue(cardSize.width * layer.size)}px`,
+      } as CSSProperties;
 
       return (
         <button
@@ -582,7 +591,7 @@ export function EditorCanvas() {
               ? (event) => onLayerPointerDown(layer.id, { x: layer.x, y: layer.y }, event)
               : undefined
           }
-          style={layerStyle}
+          style={cardStyle}
         >
           {symbolImage ? (
             <img

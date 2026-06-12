@@ -719,6 +719,7 @@
 
 .slot-editor__reel-card {
   position: absolute;
+  box-sizing: border-box;
   display: grid;
   place-items: center;
   width: 154.2857px;
@@ -732,8 +733,7 @@
   cursor: move;
   font-size: 16px;
   font-weight: 900;
-  transform: scale(var(--slot-layer-size, 1));
-  transform-origin: top left;
+  padding: 0;
   user-select: none;
   overflow: hidden;
 }
