@@ -1,0 +1,107 @@
+[
+  {
+    "name": "terminal build fix",
+    "objective": "arregla script de build desde terminal",
+    "affectedModules": ["scripts/", "package.json"],
+    "mustInclude": ["technical-cli", "release-build", "bugfix"],
+    "mustExclude": ["ui-ux"]
+  },
+  {
+    "name": "visual slot layout",
+    "objective": "mejora layout visual responsive del slot El Gallero",
+    "affectedModules": ["src/engine/PixiGame.ts", "public/assets-v2/"],
+    "mustInclude": ["ui-ux"],
+    "mustExclude": ["technical-cli"]
+  },
+  {
+    "name": "slot ui states",
+    "objective": "crear nueva pantalla UI desde cero para spin, premio y saldo con responsive",
+    "affectedModules": ["src/engine/PixiGame.ts", "src/sound-system.ts"],
+    "mustInclude": ["greenfield-ui", "ui-ux"],
+    "mustExclude": ["technical-cli", "security-audit"]
+  },
+  {
+    "name": "security audit",
+    "objective": "security audit tokens and permissions",
+    "affectedModules": ["src/auth/", "config/"],
+    "mustInclude": ["security-audit"],
+    "mustExclude": ["ui-ux"]
+  },
+  {
+    "name": "spin performance",
+    "objective": "performance lento durante spin y animacion de assets",
+    "affectedModules": ["src/app/main.tsx", "src/engine/PixiGame.ts"],
+    "mustInclude": ["performance"],
+    "mustExclude": ["docs"]
+  },
+  {
+    "name": "readme docs",
+    "objective": "actualiza README docs",
+    "affectedModules": ["README.md", "docs/"],
+    "mustInclude": ["docs"],
+    "mustExclude": ["technical-cli"]
+  },
+  {
+    "name": "spin integration",
+    "objective": "integracion de proveedor de spin con timeout y manejo de error",
+    "affectedModules": ["src/logic/SlotGameEngine.ts"],
+    "mustInclude": ["integration-io"],
+    "mustExclude": ["ui-ux"]
+  },
+  {
+    "name": "refactor engine",
+    "objective": "refactor engine de juego sin cambiar behavior",
+    "affectedModules": ["src/logic/SlotGameEngine.ts"],
+    "mustInclude": ["refactor"],
+    "mustExclude": ["ui-ux"]
+  },
+  {
+    "name": "slot bugfix root cause",
+    "objective": "diagnosticar causa raiz de bug de spin y reproducir regresion",
+    "affectedModules": ["src/logic/SlotGameEngine.ts", "scripts/"],
+    "mustInclude": ["bugfix", "root-cause-analysis", "regression-proofing"],
+    "mustExclude": ["ui-ux"]
+  },
+  {
+    "name": "canvas performance evidence",
+    "objective": "performance lento del canvas requiere evidencia y baseline medible",
+    "affectedModules": ["src/app/main.tsx", "src/utils/designViewport.ts"],
+    "mustInclude": ["performance"],
+    "mustExclude": ["docs"]
+  },
+  {
+    "name": "security risk triage",
+    "objective": "security audit token con riesgo high y triage de severidad",
+    "affectedModules": ["src/security/", "config/"],
+    "mustInclude": ["security-audit", "risk-triage"],
+    "mustExclude": ["ui-ux"]
+  },
+  {
+    "name": "docs simple",
+    "objective": "actualiza README con instrucciones simples",
+    "affectedModules": ["README.md"],
+    "mustInclude": ["docs"],
+    "mustExclude": ["deep-investigation", "technical-cli"]
+  },
+  {
+    "name": "ambiguous slot feature acceptance",
+    "objective": "agregar feature nueva de bonus ambigua con criterios de aceptacion",
+    "affectedModules": ["src/logic/JackpotModel.ts", "src/logic/SlotGameEngine.ts"],
+    "mustInclude": ["feature", "acceptance-criteria"],
+    "mustExclude": ["security-audit"]
+  },
+  {
+    "name": "prompt refinement",
+    "objective": "refinar idea poco coherente y crear super prompt antes del plan",
+    "affectedModules": ["docs/"],
+    "mustInclude": ["prompt-refinement", "research-plan"],
+    "mustExclude": ["technical-cli"]
+  },
+  {
+    "name": "refactor minimal game decision",
+    "objective": "refactor game engine con cambio minimo y decision review de alternativas",
+    "affectedModules": ["src/logic/SlotGameEngine.ts"],
+    "mustInclude": ["refactor", "minimal-change", "decision-review"],
+    "mustExclude": ["ui-ux"]
+  }
+]

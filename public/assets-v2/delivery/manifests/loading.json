@@ -1,0 +1,34 @@
+{
+  "assets": {
+    "background": {
+      "src": "/assets-v2/delivery/loading/background_loading.webp"
+    },
+    "exemplar": {
+      "src": "/assets-v2/delivery/loading/loading_exemplar.webp"
+    },
+    "title": {
+      "src": "/assets-v2/delivery/loading/titular.webp"
+    },
+    "rider": {
+      "src": "/assets-v2/delivery/loading/moterito.webp"
+    },
+    "pin": {
+      "src": "/assets-v2/delivery/loading/pin_gps.webp"
+    }
+  },
+  "loadingBar": {
+    "fps": 12,
+    "frames": [
+      "/assets-v2/delivery/loading/loading_bar_0000.webp",
+      "/assets-v2/delivery/loading/loading_bar_0001.webp",
+      "/assets-v2/delivery/loading/loading_bar_0002.webp",
+      "/assets-v2/delivery/loading/loading_bar_0003.webp",
+      "/assets-v2/delivery/loading/loading_bar_0004.webp",
+      "/assets-v2/delivery/loading/loading_bar_0005.webp",
+      "/assets-v2/delivery/loading/loading_bar_0006.webp",
+      "/assets-v2/delivery/loading/loading_bar_0007.webp",
+      "/assets-v2/delivery/loading/loading_bar_0010.webp",
+      "/assets-v2/delivery/loading/loading_bar_0011.webp"
+    ]
+  }
+}

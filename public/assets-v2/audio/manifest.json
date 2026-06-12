@@ -1,0 +1,21 @@
+{
+  "basePath": "/assets-v2/audio",
+  "version": "slot-game-kit-audio-001",
+  "format": "wav",
+  "music": {},
+  "events": {
+    "button": {
+      "assetId": "ui/button",
+      "bus": "ui",
+      "gain": 0.85
+    }
+  },
+  "assets": [
+    {
+      "id": "ui/button",
+      "file": "ui/button.wav",
+      "format": "wav",
+      "source": "slot-game-kit"
+    }
+  ]
+}

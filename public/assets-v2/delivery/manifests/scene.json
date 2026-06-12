@@ -1,0 +1,83 @@
+{
+  "assets": {
+    "backgroundSky": {
+      "src": "/assets-v2/delivery/scene/background_sky.webp",
+      "width": 941,
+      "height": 1672
+    },
+    "backgroundCity": {
+      "src": "/assets-v2/delivery/scene/background_city.webp",
+      "width": 941,
+      "height": 1672
+    },
+    "cloud": {
+      "src": "/assets-v2/delivery/scene/cloud.webp",
+      "width": 941,
+      "height": 740
+    },
+    "title": {
+      "src": "/assets-v2/delivery/scene/delivery_title.webp",
+      "width": 1448,
+      "height": 1086
+    },
+    "board": {
+      "src": "/assets-v2/delivery/scene/slot_machine_board.webp",
+      "width": 1254,
+      "height": 1254
+    }
+  },
+  "motorizado": {
+    "fps": 18,
+    "frames": [
+      "/assets-v2/delivery/scene/motorizado/motorizado_0001.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0002.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0003.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0004.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0005.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0006.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0007.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0008.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0009.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0010.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0011.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0012.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0013.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0014.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0015.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0016.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0017.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0018.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0019.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0020.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0021.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0022.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0023.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0024.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0025.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0026.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0027.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0028.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0029.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0030.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0031.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0032.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0033.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0034.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0035.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0036.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0037.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0038.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0039.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0040.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0041.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0042.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0043.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0044.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0045.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0046.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0047.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0048.webp",
+      "/assets-v2/delivery/scene/motorizado/motorizado_0049.webp"
+    ]
+  }
+}
