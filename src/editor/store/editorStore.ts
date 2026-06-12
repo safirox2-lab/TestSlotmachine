@@ -17,6 +17,7 @@ import type {
   EditorCanvasAspectRatio,
   EditorDataOptionId,
   EditorLayer,
+  EditorLayerImage,
   EditorModuleId,
   EditorReelMode,
   EditorReelStopMode,
@@ -199,6 +200,7 @@ interface EditorStoreState {
   setReelMode: (mode: EditorReelMode) => void;
   setReelStopMode: (mode: EditorReelStopMode) => void;
   setReelSetting: (key: ReelSettingKey, value: number) => void;
+  setLayerSymbolImages: (layerId: string, images: EditorLayerImage[]) => void;
   cycleSpinSpeed: () => void;
   setVisibleReelSymbols: (symbols: number[]) => void;
   undo: () => void;
@@ -407,7 +409,7 @@ const initialState = {
   hoverColor: DEFAULT_EDITOR_HOVER_COLOR,
   canvasBackground: "black" as CanvasBackground,
   canvasAspectRatio: "9:16" as EditorCanvasAspectRatio,
-  canvasZoom: 1,
+  canvasZoom: 0.44,
   reelSettings: { ...DEFAULT_REEL_SETTINGS },
   spinSpeed: "normal" as EditorSpinSpeed,
 };
@@ -434,7 +436,10 @@ function createSnapshot(state: EditorStoreState): EditorSnapshot {
     glowColor: state.glowColor,
     hoverGlowDistance: state.hoverGlowDistance,
     hoverColor: state.hoverColor,
-    layers: state.layers.map((layer) => ({ ...layer })),
+    layers: state.layers.map((layer) => ({
+      ...layer,
+      symbolImages: layer.symbolImages?.map((image) => ({ ...image })),
+    })),
     moduleVisibility: { ...state.moduleVisibility },
     reelSettings: { ...state.reelSettings },
     selectedLayerId: state.selectedLayerId,
@@ -989,6 +994,25 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
       return withUndoSnapshot(state, {
         layers: nextLayers,
         reelSettings,
+      });
+    }),
+  setLayerSymbolImages: (layerId, images) =>
+    set((state) => {
+      const layer = state.layers.find((candidate) => candidate.id === layerId);
+      if (layer?.elementType !== "card") {
+        return state;
+      }
+
+      return withUndoSnapshot(state, {
+        layers: state.layers.map((candidate) =>
+          candidate.id === layerId
+            ? {
+                ...candidate,
+                symbolImages: images.map((image) => ({ ...image })),
+              }
+            : candidate,
+        ),
+        selectedLayerId: layerId,
       });
     }),
   cycleSpinSpeed: () =>

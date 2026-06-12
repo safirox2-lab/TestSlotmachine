@@ -34,6 +34,7 @@ describe("editor store", () => {
     expect(state.hoverColor).toBe(DEFAULT_EDITOR_HOVER_COLOR);
     expect(state.canvasBackground).toBe("black");
     expect(state.canvasAspectRatio).toBe("9:16");
+    expect(state.canvasZoom).toBe(0.44);
     expect(state.spinSpeed).toBe("normal");
     expect(state.getActiveModuleLayers().map((layer) => layer.label)).toEqual([
       "Bajar Apuesta",
@@ -439,6 +440,25 @@ describe("editor store", () => {
       id: "reel-card-5-9",
       label: "Carta 45",
       symbolIndex: 45,
+    });
+  });
+
+  it("assigns an image sequence to a reel card layer", () => {
+    useEditorStore.getState().setActiveModule("reels-cards");
+    useEditorStore.getState().addReel();
+
+    useEditorStore.getState().setLayerSymbolImages("reel-card-1-1", [
+      { name: "idle-001.png", src: "blob:idle-001" },
+      { name: "idle-002.png", src: "blob:idle-002" },
+    ]);
+
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "reel-card-1-1"),
+    ).toMatchObject({
+      symbolImages: [
+        { name: "idle-001.png", src: "blob:idle-001" },
+        { name: "idle-002.png", src: "blob:idle-002" },
+      ],
     });
   });
 

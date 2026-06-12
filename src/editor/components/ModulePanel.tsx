@@ -21,6 +21,7 @@ export function ModulePanel() {
     addData,
     addReel,
     buttonGlowDistance,
+    canvasAspectRatio,
     dataColor,
     glowColor,
     glowEnabled,
@@ -44,6 +45,7 @@ export function ModulePanel() {
     textColor,
     toggleModuleVisibility,
   } = useEditorStore();
+  const shouldShowHoverControls = canvasAspectRatio === "16:9";
 
   const toggleModule = (moduleId: EditorModuleId) => {
     setActiveModule(moduleId);
@@ -129,15 +131,17 @@ export function ModulePanel() {
             />
           </label>
 
-          <label className="slot-editor__color-control">
-            <span>Color hover</span>
-            <input
-              aria-label="Color hover"
-              type="color"
-              value={hoverColor}
-              onInput={(event) => setHoverColor(event.currentTarget.value)}
-            />
-          </label>
+          {shouldShowHoverControls ? (
+            <label className="slot-editor__color-control">
+              <span>Color hover</span>
+              <input
+                aria-label="Color hover"
+                type="color"
+                value={hoverColor}
+                onInput={(event) => setHoverColor(event.currentTarget.value)}
+              />
+            </label>
+          ) : null}
 
           <label className="slot-editor__toggle-control">
             <span>Glow activo</span>
@@ -161,17 +165,19 @@ export function ModulePanel() {
             />
           </label>
 
-          <label className="slot-editor__number-control">
-            <span>Distancia glow hover</span>
-            <input
-              aria-label="Distancia glow hover"
-              min="0"
-              max="160"
-              type="number"
-              value={hoverGlowDistance}
-              onInput={(event) => setHoverGlowDistance(Number(event.currentTarget.value))}
-            />
-          </label>
+          {shouldShowHoverControls ? (
+            <label className="slot-editor__number-control">
+              <span>Distancia glow hover</span>
+              <input
+                aria-label="Distancia glow hover"
+                min="0"
+                max="160"
+                type="number"
+                value={hoverGlowDistance}
+                onInput={(event) => setHoverGlowDistance(Number(event.currentTarget.value))}
+              />
+            </label>
+          ) : null}
         </div>
       </details>
     </>

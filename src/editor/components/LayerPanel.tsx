@@ -19,6 +19,24 @@ function layerTypeLabel(type: string): string {
   return "Dato";
 }
 
+function renderLayerTitle(layer: ReturnType<typeof useEditorStore.getState>["layers"][number]) {
+  if (layer.elementType === "card" && layer.symbolImages?.[0]) {
+    return (
+      <>
+        <img
+          className="slot-editor__layer-thumbnail"
+          data-layer-thumbnail={layer.id}
+          src={layer.symbolImages[0].src}
+          alt=""
+        />
+        <span>{layer.label}</span>
+      </>
+    );
+  }
+
+  return <span>{`[${layerTypeLabel(layer.elementType)}] ${layer.label}`}</span>;
+}
+
 export function LayerPanel() {
   const {
     activeModuleId,
@@ -28,6 +46,7 @@ export function LayerPanel() {
     reelSettings,
     selectedLayerId,
     setSelectedLayer,
+    setLayerSymbolImages,
     toggleLayerVisibility,
     updateLayer,
   } = useEditorStore();
@@ -108,7 +127,7 @@ export function LayerPanel() {
               }
             }}
           >
-            <span>{`[${layerTypeLabel(layer.elementType)}] ${layer.label}`}</span>
+            <span className="slot-editor__layer-name">{renderLayerTitle(layer)}</span>
             <button
               className={`slot-editor__layer-action slot-editor__visibility-button ${
                 layer.visible ? "" : "is-hidden"
@@ -135,14 +154,44 @@ export function LayerPanel() {
               &#9881;
             </button>
             {layer.elementType === "card" ? (
-              <button
-                className="slot-editor__layer-action slot-editor__load-symbol-action"
-                type="button"
-                aria-label={`Cargar simbolo de ${layer.label}`}
-                onClick={(event) => event.stopPropagation()}
-              >
-                &#8593;
-              </button>
+              <>
+                <button
+                  className="slot-editor__layer-action slot-editor__load-symbol-action"
+                  type="button"
+                  aria-label={`Cargar simbolo de ${layer.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedLayer(layer.id);
+                    document.getElementById(`symbol-files-${layer.id}`)?.click();
+                  }}
+                >
+                  &#8593;
+                </button>
+                <input
+                  id={`symbol-files-${layer.id}`}
+                  className="slot-editor__symbol-file-input"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  aria-label={`Seleccionar imagenes para ${layer.label}`}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => {
+                    event.stopPropagation();
+                    const files = Array.from(event.currentTarget.files ?? []);
+                    if (files.length === 0) {
+                      return;
+                    }
+                    setLayerSymbolImages(
+                      layer.id,
+                      files.map((file) => ({
+                        name: file.name,
+                        src: URL.createObjectURL(file),
+                      })),
+                    );
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </>
             ) : null}
             <button
               className="slot-editor__layer-action slot-editor__delete-action"
@@ -201,6 +250,12 @@ export function LayerPanel() {
             <div className="slot-editor__property-readout" data-card-pixel-size="true">
               <span>Tamano px</span>
               <strong>{`${selectedCardPixelSize.width} x ${selectedCardPixelSize.height} px`}</strong>
+            </div>
+          ) : null}
+          {selectedLayer.elementType === "card" && selectedLayer.symbolImages?.length ? (
+            <div className="slot-editor__property-readout" data-card-image-count="true">
+              <span>Imagenes</span>
+              <strong>{`${selectedLayer.symbolImages.length} imagenes`}</strong>
             </div>
           ) : null}
           <label className="slot-editor__property-color">

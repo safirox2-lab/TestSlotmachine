@@ -27,6 +27,7 @@ export function EditorButtonPreview({
   className = "",
   iconSrc,
   isDisabledByModule = false,
+  isPlayLocked = false,
   isOutsideCanvas = false,
   label,
   layerId,
@@ -37,6 +38,7 @@ export function EditorButtonPreview({
   className?: string;
   iconSrc: string;
   isDisabledByModule?: boolean;
+  isPlayLocked?: boolean;
   isOutsideCanvas?: boolean;
   label: string;
   layerId: string;
@@ -52,6 +54,7 @@ export function EditorButtonPreview({
         "slot-editor__hud-button",
         "game-hud__reference-button",
         ...getHudReferenceClasses(className),
+        isPlayLocked ? "is-play-locked" : "",
         className,
       ]
         .filter(Boolean)
@@ -60,6 +63,7 @@ export function EditorButtonPreview({
       aria-label={label}
       {...(isOutsideCanvas ? { "data-outside-layer-id": layerId } : { "data-layer-id": layerId })}
       {...(isDisabledByModule ? { "data-layer-disabled": "true" } : {})}
+      disabled={isPlayLocked}
       onClick={onClick}
       onPointerDown={onPointerDown}
       style={style}

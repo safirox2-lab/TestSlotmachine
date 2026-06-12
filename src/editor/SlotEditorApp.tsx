@@ -42,6 +42,7 @@ export function SlotEditorApp() {
   const glowEnabled = useEditorStore((state) => state.glowEnabled);
   const buttonGlowDistance = useEditorStore((state) => state.buttonGlowDistance);
   const hoverGlowDistance = useEditorStore((state) => state.hoverGlowDistance);
+  const canvasAspectRatio = useEditorStore((state) => state.canvasAspectRatio);
   const dataColor = useEditorStore((state) => state.dataColor);
   const textColor = useEditorStore((state) => state.textColor);
   const hoverColor = useEditorStore((state) => state.hoverColor);
@@ -51,6 +52,7 @@ export function SlotEditorApp() {
   const hoverColorRgb = hexToRgbTriplet(hoverColor);
   const buttonGlowOuterDistance = Math.round(buttonGlowDistance * 1.8);
   const hoverGlowOuterDistance = Math.round(hoverGlowDistance * 1.9);
+  const isHoverGlowEnabled = glowEnabled && canvasAspectRatio === "16:9";
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -99,7 +101,7 @@ export function SlotEditorApp() {
 
   return (
     <section
-      className="slot-editor"
+      className={`slot-editor is-aspect-${canvasAspectRatio.replace(":", "-")}`}
       style={
         {
           "--slot-editor-button-color": accentColor,
@@ -116,8 +118,8 @@ export function SlotEditorApp() {
           "--slot-editor-hover-rgb": hoverColorRgb,
           "--slot-editor-hover-glow-distance": `${hoverGlowDistance}px`,
           "--slot-editor-hover-glow-outer-distance": `${hoverGlowOuterDistance}px`,
-          "--slot-editor-hover-glow-alpha": glowEnabled ? "0.56" : "0",
-          "--slot-editor-hover-glow-outer-alpha": glowEnabled ? "0.26" : "0",
+          "--slot-editor-hover-glow-alpha": isHoverGlowEnabled ? "0.56" : "0",
+          "--slot-editor-hover-glow-outer-alpha": isHoverGlowEnabled ? "0.26" : "0",
           "--hud-label-gold-rgb": glowColorRgb,
           "--hud-button-glow": `rgba(${glowColorRgb}, ${glowEnabled ? "0.62" : "0"})`,
         } as CSSProperties

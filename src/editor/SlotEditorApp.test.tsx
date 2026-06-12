@@ -45,7 +45,7 @@ describe("SlotEditorApp", () => {
     expect(host.textContent).toContain("Colores");
     expect(host.textContent).toContain("Color de botones");
     expect(host.textContent).toContain("Color del glow");
-    expect(host.textContent).toContain("Color hover");
+    expect(host.textContent).not.toContain("Color hover");
     expect(host.textContent).toContain("Color del Texto");
     expect(host.textContent).toContain("Color de datos");
     const moduleTitles = Array.from(
@@ -55,6 +55,7 @@ describe("SlotEditorApp", () => {
     expect(moduleTitles).not.toContain("Reglas");
     expect(moduleTitles).not.toContain("Datos del panel");
     expect(host.querySelector(".slot-editor__phone")).not.toBeNull();
+    expect(host.querySelector<HTMLElement>(".slot-editor")?.className).toContain("is-aspect-9-16");
     expect(host.textContent).toContain("[Boton] Spin / Jugar");
     expect(host.textContent).toContain("[Dato] Balance");
     expect(host.textContent).toContain("[Dato] Ronda");
@@ -248,6 +249,102 @@ describe("SlotEditorApp", () => {
     act(() => root.unmount());
   });
 
+  it("loads an image sequence from the green card layer action", () => {
+    const createObjectURL = vi.fn((file: File) => `blob:${file.name}`);
+    vi.stubGlobal("URL", { ...URL, createObjectURL });
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().addReel();
+      useEditorStore.getState().updateLayer("reel-card-2-1", { x: 304 });
+      useEditorStore.setState({
+        layers: useEditorStore
+          .getState()
+          .layers.map((layer) =>
+            layer.id === "reel-card-2-1" ? { ...layer, symbolIndex: 1 } : layer,
+          ),
+      });
+      root.render(<SlotEditorApp />);
+    });
+
+    const imageInput = host.querySelector<HTMLInputElement>(
+      'input[aria-label="Seleccionar imagenes para Carta 1"]',
+    );
+    const files = [
+      new File(["frame-1"], "symbol-001.png", { type: "image/png" }),
+      new File(["frame-2"], "symbol-002.png", { type: "image/png" }),
+    ];
+
+    expect(imageInput?.multiple).toBe(true);
+    expect(imageInput?.accept).toBe("image/*");
+
+    Object.defineProperty(imageInput, "files", {
+      configurable: true,
+      value: files,
+    });
+
+    act(() => {
+      imageInput?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
+    const symbolOneImages = Array.from(
+      host.querySelectorAll<HTMLImageElement>('[data-symbol-image="1"]'),
+    );
+    expect(symbolOneImages.length).toBeGreaterThanOrEqual(2);
+    expect(symbolOneImages.every((image) => image.src === "blob:symbol-001.png")).toBe(true);
+    expect(
+      host.querySelector<HTMLImageElement>('[data-layer-thumbnail="reel-card-1-1"]')?.src,
+    ).toBe("blob:symbol-001.png");
+    expect(
+      host
+        .querySelector<HTMLImageElement>('[data-layer-thumbnail="reel-card-1-1"]')
+        ?.closest(".slot-editor__layer")?.textContent,
+    ).not.toContain("[Carta]");
+    expect(host.textContent).toContain("2 imagenes");
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "reel-card-1-1"),
+    ).toMatchObject({
+      symbolImages: [
+        { name: "symbol-001.png", src: "blob:symbol-001.png" },
+        { name: "symbol-002.png", src: "blob:symbol-002.png" },
+      ],
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("uses loaded symbol images inside the reel motion overlay", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().addReel();
+      useEditorStore
+        .getState()
+        .setLayerSymbolImages("reel-card-1-1", [
+          { name: "symbol-001.png", src: "blob:symbol-001.png" },
+        ]);
+      root.render(<SlotEditorApp />);
+    });
+
+    const spinButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]');
+
+    act(() => {
+      spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(80);
+    });
+
+    expect(host.querySelector<HTMLImageElement>('[data-reel-motion-symbol-image="1"]')?.src).toBe(
+      "blob:symbol-001.png",
+    );
+
+    act(() => root.unmount());
+  });
+
   it("lists all possible RNG cards but only renders the fixed 5x4 grid on the canvas", () => {
     const root = renderEditor();
 
@@ -331,14 +428,14 @@ describe("SlotEditorApp", () => {
     expect(
       useEditorStore.getState().layers.find((layer) => layer.id === "reel-card-1-1"),
     ).toMatchObject({
-      x: 161,
-      y: 604,
+      x: 180,
+      y: 629,
     });
     expect(
       useEditorStore.getState().layers.find((layer) => layer.id === "reel-card-2-1")?.x,
-    ).toBeCloseTo(319.2857);
+    ).toBeCloseTo(338.2857);
     expect(useEditorStore.getState().layers.find((layer) => layer.id === "reel-card-2-1")?.y).toBe(
-      604,
+      629,
     );
 
     act(() => root.unmount());
@@ -402,7 +499,10 @@ describe("SlotEditorApp", () => {
     });
 
     expect(host.querySelector('[data-reel-motion-window="true"]')).not.toBeNull();
-    expect(host.querySelector('[data-layer-id="reel-card-1-1"]')).toBeNull();
+    expect(host.querySelector('[data-layer-id="reel-card-1-1"]')).not.toBeNull();
+    expect(host.querySelector<HTMLElement>('[data-layer-id="reel-card-1-1"]')?.className).toContain(
+      "is-reel-hit-target",
+    );
     expect(
       Array.from(host.querySelectorAll<HTMLElement>("[data-reel-motion-symbol]")).every((symbol) =>
         symbol.className.includes("is-stopped"),
@@ -417,6 +517,53 @@ describe("SlotEditorApp", () => {
         .every((layer) => layer.symbolIndex === 7),
     ).toBe(true);
     expect(randomSpy).toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("allows dragging the reel grid again after the spin result has stopped", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.4);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    const spinButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]');
+
+    act(() => {
+      spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5440);
+    });
+
+    const reelCard = host.querySelector<HTMLElement>('[data-layer-id="reel-card-1-1"]');
+
+    expect(reelCard).not.toBeNull();
+    expect(reelCard?.className).toContain("is-reel-hit-target");
+    expect(host.querySelector('[data-reel-motion-window="true"]')).not.toBeNull();
+
+    act(() => {
+      reelCard?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 100 }),
+      );
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 130, clientY: 140 }));
+      window.dispatchEvent(new PointerEvent("pointerup"));
+    });
+
+    expect(useEditorStore.getState().selectedLayerId).toBe("reel-card-1-1");
+    expect(host.querySelector('[data-reel-motion-window="true"]')).toBeNull();
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "reel-card-1-1"),
+    ).toMatchObject({
+      x: 214,
+      y: 675,
+    });
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "reel-card-2-1")?.x,
+    ).toBeCloseTo(372.2857);
 
     act(() => root.unmount());
   });
@@ -459,6 +606,55 @@ describe("SlotEditorApp", () => {
 
     expect(spinButton?.className).not.toContain("is-spinning");
     expect(spinButton?.className).toContain("is-spin-settling");
+
+    act(() => root.unmount());
+  });
+
+  it("locks play buttons while reels are spinning and unlocks them after stop", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.4);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelStopMode("all-at-once");
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    const lockedButtonIds = [
+      "button-spin",
+      "button-betDecrease",
+      "button-betIncrease",
+      "button-autoplay",
+      "button-bet",
+    ];
+    const spinButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]');
+    const arrowButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-arrow"]');
+
+    act(() => {
+      spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    for (const buttonId of lockedButtonIds) {
+      const button = host.querySelector<HTMLButtonElement>(`[data-layer-id="${buttonId}"]`);
+
+      expect(button?.disabled).toBe(true);
+      expect(button?.className).toContain("is-play-locked");
+    }
+    expect(arrowButton?.disabled).toBe(false);
+    expect(arrowButton?.className).not.toContain("is-play-locked");
+
+    act(() => {
+      vi.advanceTimersByTime(5440);
+    });
+
+    for (const buttonId of lockedButtonIds) {
+      const button = host.querySelector<HTMLButtonElement>(`[data-layer-id="${buttonId}"]`);
+
+      expect(button?.disabled).toBe(false);
+      expect(button?.className).not.toContain("is-play-locked");
+    }
 
     act(() => root.unmount());
   });
@@ -687,8 +883,8 @@ describe("SlotEditorApp", () => {
     expect(
       useEditorStore.getState().layers.find((layer) => layer.id === "button-spin"),
     ).toMatchObject({
-      x: 452,
-      y: 1422,
+      x: 477,
+      y: 1442,
     });
 
     act(() => root.unmount());
@@ -771,6 +967,9 @@ describe("SlotEditorApp", () => {
     expect(host.querySelector<HTMLElement>(".slot-editor__phone")?.className).toContain(
       "is-aspect-16-9",
     );
+    expect(host.querySelector<HTMLElement>(".slot-editor__phone")?.style.transform).toBe(
+      "translate(0px, -180px) scale(0.44)",
+    );
     expect(host.querySelector('[data-layer-id="button-spin"]')).toBeNull();
     expect(host.querySelector('[data-layer-id="landscape-button-spin"]')).not.toBeNull();
     expect(
@@ -778,6 +977,55 @@ describe("SlotEditorApp", () => {
         .querySelector<HTMLButtonElement>('button[aria-label="Aspect ratio 16:9"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps independent canvas pan positions per aspect ratio", () => {
+    const root = renderEditor();
+    const canvasShell = host.querySelector<HTMLElement>(".slot-editor__canvas-shell");
+
+    act(() => {
+      canvasShell?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100 }),
+      );
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 130, clientY: 140 }));
+      window.dispatchEvent(new PointerEvent("pointerup"));
+    });
+
+    expect(host.querySelector<HTMLElement>(".slot-editor__phone")?.style.transform).toBe(
+      "translate(30px, -480px) scale(0.44)",
+    );
+
+    act(() => {
+      useEditorStore.getState().setCanvasAspectRatio("16:9");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelector<HTMLElement>(".slot-editor__phone")?.style.transform).toBe(
+      "translate(0px, -180px) scale(0.44)",
+    );
+
+    act(() => {
+      canvasShell?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100 }),
+      );
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 80, clientY: 115 }));
+      window.dispatchEvent(new PointerEvent("pointerup"));
+    });
+
+    expect(host.querySelector<HTMLElement>(".slot-editor__phone")?.style.transform).toBe(
+      "translate(-20px, -165px) scale(0.44)",
+    );
+
+    act(() => {
+      useEditorStore.getState().setCanvasAspectRatio("9:16");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelector<HTMLElement>(".slot-editor__phone")?.style.transform).toBe(
+      "translate(30px, -480px) scale(0.44)",
+    );
 
     act(() => root.unmount());
   });
@@ -1094,8 +1342,8 @@ describe("SlotEditorApp", () => {
     expect(
       useEditorStore.getState().layers.find((layer) => layer.id === "button-spin"),
     ).toMatchObject({
-      x: 462,
-      y: 1432,
+      x: 500,
+      y: 1465,
     });
 
     act(() => root.unmount());
@@ -1118,8 +1366,8 @@ describe("SlotEditorApp", () => {
     expect(
       useEditorStore.getState().layers.find((layer) => layer.id === "button-spin"),
     ).toMatchObject({
-      x: 472,
-      y: 1438,
+      x: 523,
+      y: 1479,
     });
 
     act(() => {
@@ -1143,6 +1391,8 @@ describe("SlotEditorApp", () => {
     const canvasShell = host.querySelector<HTMLElement>(".slot-editor__canvas-shell");
     const phoneCanvas = host.querySelector<HTMLElement>(".slot-editor__phone");
 
+    expect(phoneCanvas?.style.transform).toBe("translate(0px, -520px) scale(0.44)");
+
     act(() => {
       canvasShell?.dispatchEvent(
         new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100 }),
@@ -1151,7 +1401,26 @@ describe("SlotEditorApp", () => {
       window.dispatchEvent(new PointerEvent("pointerup"));
     });
 
-    expect(phoneCanvas?.style.transform).toBe("translate(30px, 40px) scale(1)");
+    expect(phoneCanvas?.style.transform).toBe("translate(30px, -480px) scale(0.44)");
+
+    act(() => root.unmount());
+  });
+
+  it("shows the current canvas zoom percentage in the top right", () => {
+    const root = renderEditor();
+    const canvasShell = host.querySelector<HTMLElement>(".slot-editor__canvas-shell");
+    const zoomIndicator = host.querySelector<HTMLElement>(".slot-editor__zoom-indicator");
+
+    expect(zoomIndicator?.textContent).toBe("44%");
+    expect(zoomIndicator?.getAttribute("aria-label")).toBe("Zoom del canvas");
+
+    act(() => {
+      canvasShell?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 120 }));
+    });
+
+    expect(host.querySelector<HTMLElement>(".slot-editor__zoom-indicator")?.textContent).toBe(
+      "36%",
+    );
 
     act(() => root.unmount());
   });
@@ -1199,12 +1468,11 @@ describe("SlotEditorApp", () => {
       );
     });
 
-    expect(
-      useEditorStore.getState().layers.find((layer) => layer.id === "button-spin"),
-    ).toMatchObject({
-      x: 423,
-      y: 1407,
-    });
+    const movedSpinLayer = useEditorStore
+      .getState()
+      .layers.find((layer) => layer.id === "button-spin");
+    expect(movedSpinLayer?.x).toBeLessThan(432);
+    expect(movedSpinLayer?.y).toBeGreaterThan(1406);
 
     act(() => root.unmount());
   });
@@ -1437,23 +1705,58 @@ describe("SlotEditorApp", () => {
 
   it("groups module color controls inside a collapsible colors tab", () => {
     const root = renderEditor();
+    const editorRoot = host.querySelector<HTMLElement>(".slot-editor");
     const colorsDetails = Array.from(host.querySelectorAll("details")).find(
       (details) => details.querySelector("summary")?.textContent === "Colores",
     );
 
+    expect(editorRoot?.style.getPropertyValue("--slot-editor-hover-glow-alpha")).toBe("0");
+    expect(editorRoot?.style.getPropertyValue("--slot-editor-hover-glow-outer-alpha")).toBe("0");
     expect(colorsDetails).not.toBeUndefined();
     expect(colorsDetails?.querySelector('input[aria-label="Color de botones"]')).not.toBeNull();
     expect(colorsDetails?.querySelector('input[aria-label="Color del glow"]')).not.toBeNull();
-    expect(colorsDetails?.querySelector('input[aria-label="Color hover"]')).not.toBeNull();
+    expect(colorsDetails?.querySelector('input[aria-label="Color hover"]')).toBeNull();
     expect(colorsDetails?.querySelector('input[aria-label="Color del Texto"]')).not.toBeNull();
     expect(colorsDetails?.querySelector('input[aria-label="Color de datos"]')).not.toBeNull();
     expect(colorsDetails?.querySelector('input[aria-label="Glow activo"]')).not.toBeNull();
     expect(
       colorsDetails?.querySelector('input[aria-label="Distancia glow botones"]'),
     ).not.toBeNull();
-    expect(colorsDetails?.querySelector('input[aria-label="Distancia glow hover"]')).not.toBeNull();
+    expect(colorsDetails?.querySelector('input[aria-label="Distancia glow hover"]')).toBeNull();
     expect(
       Array.from(colorsDetails?.querySelectorAll("label span:first-child") ?? []).map(
+        (element) => element.textContent,
+      ),
+    ).toEqual([
+      "Color de botones",
+      "Color del Texto",
+      "Color de datos",
+      "Color del glow",
+      "Glow activo",
+      "Distancia glow botones",
+    ]);
+
+    act(() => {
+      useEditorStore.getState().setCanvasAspectRatio("16:9");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelector<HTMLElement>(".slot-editor")?.className).toContain("is-aspect-16-9");
+    expect(
+      host
+        .querySelector<HTMLElement>(".slot-editor")
+        ?.style.getPropertyValue("--slot-editor-hover-glow-alpha"),
+    ).toBe("0.56");
+    const landscapeColorsDetails = Array.from(host.querySelectorAll("details")).find(
+      (details) => details.querySelector("summary")?.textContent === "Colores",
+    );
+
+    expect(landscapeColorsDetails?.querySelector('input[aria-label="Color hover"]')).not.toBeNull();
+    expect(
+      landscapeColorsDetails?.querySelector('input[aria-label="Distancia glow hover"]'),
+    ).not.toBeNull();
+    expect(
+      Array.from(landscapeColorsDetails?.querySelectorAll("label span:first-child") ?? []).map(
         (element) => element.textContent,
       ),
     ).toEqual([
@@ -1472,6 +1775,12 @@ describe("SlotEditorApp", () => {
 
   it("controls button glow distance and hover glow distance from the colors tab", () => {
     const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setCanvasAspectRatio("16:9");
+      root.render(<SlotEditorApp />);
+    });
+
     const glowToggle = host.querySelector<HTMLInputElement>('input[aria-label="Glow activo"]');
     const buttonGlowDistance = host.querySelector<HTMLInputElement>(
       'input[aria-label="Distancia glow botones"]',
@@ -1509,6 +1818,14 @@ describe("SlotEditorApp", () => {
 
   it("exposes editable hover color for all canvas buttons", () => {
     const root = renderEditor();
+    const cssPath = join(process.cwd(), "src/editor/slot-editor.css");
+    const css = readFileSync(cssPath, "utf8");
+
+    act(() => {
+      useEditorStore.getState().setCanvasAspectRatio("16:9");
+      root.render(<SlotEditorApp />);
+    });
+
     const hoverInput = host.querySelector<HTMLInputElement>('input[aria-label="Color hover"]');
 
     act(() => {
@@ -1529,6 +1846,20 @@ describe("SlotEditorApp", () => {
         .querySelector<HTMLElement>(".slot-editor")
         ?.style.getPropertyValue("--slot-editor-hover-rgb"),
     ).toBe("34, 197, 94");
+    expect(css).toContain(
+      ".slot-editor.is-aspect-16-9 .game-hud__reference-button:hover:not(:disabled)",
+    );
+    expect(css).toContain(
+      ".slot-editor.is-aspect-9-16 .game-hud__reference-button:hover:not(:disabled)",
+    );
+    expect(css).toContain(
+      ".slot-editor.is-aspect-9-16 .game-hud__reference-button:hover:not(:disabled)::after",
+    );
+    expect(css).toContain(
+      ".slot-editor.is-aspect-16-9 .slot-editor__hud-button:hover:not(:disabled)::after",
+    );
+    expect(css).not.toContain(".slot-editor .game-hud__reference-button:hover:not(:disabled) {");
+    expect(css).not.toContain(".slot-editor .slot-editor__hud-button:hover:not(:disabled)::after");
 
     act(() => root.unmount());
   });

@@ -64,7 +64,13 @@ export interface EditorLayer {
   size: number;
   color: string;
   iconSrc?: string;
+  symbolImages?: EditorLayerImage[];
   symbolIndex?: number;
   textLabel?: string;
   textValue?: string;
+}
+
+export interface EditorLayerImage {
+  name: string;
+  src: string;
 }

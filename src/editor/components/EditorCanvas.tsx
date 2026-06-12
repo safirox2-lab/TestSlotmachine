@@ -1,5 +1,6 @@
 import type { CSSProperties, PointerEvent, WheelEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { EditorCanvasAspectRatio } from "../editor.types";
 import {
   advanceReelMotionWindow,
   createReelMotionWindow,
@@ -20,6 +21,13 @@ const BUTTON_CLASS_BY_ID: Record<string, string> = {
   "button-menu": "is-menu",
   "button-arrow": "is-arrow",
 };
+const PLAY_LOCKED_BUTTON_IDS = new Set([
+  "button-autoplay",
+  "button-bet",
+  "button-betDecrease",
+  "button-betIncrease",
+  "button-spin",
+]);
 
 const DATA_CLASS_BY_ID: Record<string, string> = {
   "data-user": "is-user",
@@ -42,6 +50,10 @@ const REEL_PLAY_STEP_MS_BY_SPEED = {
 } as const;
 const REEL_PLAY_MIN_STOP_STEP = 24;
 const REEL_PLAY_MAX_STOP_STEP = 64;
+const DEFAULT_CANVAS_PAN_BY_ASPECT: Record<EditorCanvasAspectRatio, { x: number; y: number }> = {
+  "9:16": { x: 0, y: -520 },
+  "16:9": { x: 0, y: -180 },
+};
 
 function toStablePixelValue(value: number): number {
   return Number(value.toFixed(4));
@@ -83,8 +95,13 @@ function reelGridPosition(layerId: string): { column: number; row: number } | nu
   };
 }
 
+function cardSymbolNumber(label: string): number | null {
+  const match = /^Carta\s+(\d+)$/.exec(label);
+  return match ? Number(match[1]) : null;
+}
+
 export function EditorCanvas() {
-  const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
+  const [canvasPanByAspect, setCanvasPanByAspect] = useState(DEFAULT_CANVAS_PAN_BY_ASPECT);
   const [isPanning, setIsPanning] = useState(false);
   const [reelPlay, setReelPlay] = useState<ReelPlayState | null>(null);
   const skipNextReelSignatureClearRef = useRef(false);
@@ -108,6 +125,8 @@ export function EditorCanvas() {
     setVisibleReelSymbols,
     updateLayerDraft,
   } = useEditorStore();
+  const canvasPan = canvasPanByAspect[canvasAspectRatio];
+  const zoomPercent = Math.round(canvasZoom * 100);
   const visibleLayers = useMemo(
     () =>
       layers.filter(
@@ -166,6 +185,24 @@ export function EditorCanvas() {
         }),
     [visibleLayers],
   );
+  const symbolImagesByIndex = useMemo(() => {
+    const imagesByIndex = new Map<number, (typeof layers)[number]["symbolImages"]>();
+    for (const layer of layers) {
+      if (
+        layer.canvasAspectRatio !== canvasAspectRatio ||
+        layer.elementType !== "card" ||
+        !layer.symbolImages?.length
+      ) {
+        continue;
+      }
+
+      const symbolNumber = cardSymbolNumber(layer.label);
+      if (symbolNumber !== null) {
+        imagesByIndex.set(symbolNumber, layer.symbolImages);
+      }
+    }
+    return imagesByIndex;
+  }, [canvasAspectRatio, layers]);
   const reelStructureSignature = useMemo(
     () =>
       [
@@ -238,10 +275,13 @@ export function EditorCanvas() {
     setIsPanning(true);
 
     const onPointerMove = (moveEvent: globalThis.PointerEvent) => {
-      setCanvasPan({
-        x: start.panX + moveEvent.clientX - start.pointerX,
-        y: start.panY + moveEvent.clientY - start.pointerY,
-      });
+      setCanvasPanByAspect((current) => ({
+        ...current,
+        [canvasAspectRatio]: {
+          x: start.panX + moveEvent.clientX - start.pointerX,
+          y: start.panY + moveEvent.clientY - start.pointerY,
+        },
+      }));
     };
     const onPointerUp = () => {
       setIsPanning(false);
@@ -261,6 +301,12 @@ export function EditorCanvas() {
     event.preventDefault();
     event.stopPropagation();
     setSelectedLayer(layerId);
+    if (reelGridPosition(layerId) && reelPlay) {
+      const finalReelPlayStep = Math.max(...reelPlay.stopSchedule);
+      if (reelPlay.currentStep >= finalReelPlayStep) {
+        setReelPlay(null);
+      }
+    }
 
     const start = {
       pointerX: event.clientX,
@@ -413,6 +459,7 @@ export function EditorCanvas() {
             {columnSymbols.map((symbolIndex, rowIndex) => {
               const isColumnStopped =
                 reelPlay.currentStep >= (reelPlay.stopSchedule[columnIndex] ?? 0);
+              const symbolImage = symbolImagesByIndex.get(symbolIndex)?.[0];
               return (
                 <div
                   className={[
@@ -436,7 +483,16 @@ export function EditorCanvas() {
                     } as CSSProperties
                   }
                 >
-                  <span>{symbolIndex}</span>
+                  {symbolImage ? (
+                    <img
+                      className="slot-editor__reel-card-image"
+                      data-reel-motion-symbol-image={symbolIndex}
+                      src={symbolImage.src}
+                      alt=""
+                    />
+                  ) : (
+                    <span>{symbolIndex}</span>
+                  )}
                 </div>
               );
             })}
@@ -449,6 +505,8 @@ export function EditorCanvas() {
   const renderLayer = (layer: (typeof visibleLayers)[number], surface: "inside" | "outside") => {
     const isOutsideSurface = surface === "outside";
     const isActiveModuleLayer = layer.moduleId === activeModuleId;
+    const finalReelPlayStep = reelPlay ? Math.max(...reelPlay.stopSchedule) : 0;
+    const isReelPlaySettled = Boolean(reelPlay && reelPlay.currentStep >= finalReelPlayStep);
     const layerClassNames = [
       isOutsideSurface ? "slot-editor__outside-layer" : "",
       isActiveModuleLayer ? "" : "is-locked-by-module",
@@ -494,13 +552,24 @@ export function EditorCanvas() {
     }
 
     if (layer.elementType === "card") {
-      if (!isOutsideSurface && reelPlay) {
+      if (!isOutsideSurface && reelPlay && !isReelPlaySettled) {
         return null;
       }
 
+      const symbolImage =
+        layer.symbolIndex === undefined
+          ? undefined
+          : symbolImagesByIndex.get(layer.symbolIndex)?.[0];
+
       return (
         <button
-          className={["slot-editor__reel-card", ...layerClassNames].filter(Boolean).join(" ")}
+          className={[
+            "slot-editor__reel-card",
+            !isOutsideSurface && isReelPlaySettled ? "is-reel-hit-target" : "",
+            ...layerClassNames,
+          ]
+            .filter(Boolean)
+            .join(" ")}
           type="button"
           aria-label={layer.label}
           {...(isOutsideSurface
@@ -515,7 +584,16 @@ export function EditorCanvas() {
           }
           style={layerStyle}
         >
-          <span>{layer.symbolIndex ?? "?"}</span>
+          {symbolImage ? (
+            <img
+              className="slot-editor__reel-card-image"
+              data-symbol-image={layer.symbolIndex}
+              src={symbolImage.src}
+              alt=""
+            />
+          ) : (
+            <span>{layer.symbolIndex ?? "?"}</span>
+          )}
         </button>
       );
     }
@@ -527,10 +605,9 @@ export function EditorCanvas() {
     const buttonBaseId = baseLayerId(layer.id);
     const isSpinButton = buttonBaseId === "button-spin";
     const isArrowButton = buttonBaseId === "button-arrow";
-    const finalReelPlayStep = reelPlay ? Math.max(...reelPlay.stopSchedule) : 0;
-    const isSpinMotionActive = Boolean(
-      isSpinButton && reelPlay && reelPlay.currentStep < finalReelPlayStep,
-    );
+    const isReelPlayActive = Boolean(reelPlay && reelPlay.currentStep < finalReelPlayStep);
+    const isPlayLockedButton = isReelPlayActive && PLAY_LOCKED_BUTTON_IDS.has(buttonBaseId);
+    const isSpinMotionActive = Boolean(isSpinButton && isReelPlayActive);
     const isSpinSettling = Boolean(
       isSpinButton && reelPlay && reelPlay.currentStep >= finalReelPlayStep,
     );
@@ -549,11 +626,12 @@ export function EditorCanvas() {
         iconSrc={layer.iconSrc}
         isOutsideCanvas={isOutsideSurface}
         isDisabledByModule={!isActiveModuleLayer}
+        isPlayLocked={!isOutsideSurface && isPlayLockedButton}
         key={`${surface}-${layer.id}`}
         label={layer.label}
         layerId={layer.id}
         onPointerDown={
-          isActiveModuleLayer
+          isActiveModuleLayer && !isPlayLockedButton
             ? (event) => onLayerPointerDown(layer.id, { x: layer.x, y: layer.y }, event)
             : undefined
         }
@@ -561,6 +639,9 @@ export function EditorCanvas() {
           !isOutsideSurface && isSpinButton
             ? (event) => {
                 event.stopPropagation();
+                if (isReelPlayActive) {
+                  return;
+                }
                 startReelPlay();
               }
             : !isOutsideSurface && isArrowButton
@@ -629,6 +710,9 @@ export function EditorCanvas() {
             16:9
           </button>
         </fieldset>
+      </div>
+      <div className="slot-editor__zoom-indicator" aria-label="Zoom del canvas" role="status">
+        {zoomPercent}%
       </div>
       <section
         className={`slot-editor__phone is-background-${canvasBackground} is-aspect-${canvasAspectRatio.replace(":", "-")}`}
