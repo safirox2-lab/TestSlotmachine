@@ -1,7 +1,8 @@
-import { type CSSProperties, useEffect } from "react";
+import { type CSSProperties, useCallback, useEffect, useState } from "react";
 import { EditorCanvas } from "./components/EditorCanvas";
 import { LayerPanel } from "./components/LayerPanel";
 import { ModulePanel } from "./components/ModulePanel";
+import type { EditorTraceSummary } from "./editor.types";
 import { useEditorStore } from "./store/editorStore";
 import "./slot-editor.css";
 
@@ -37,6 +38,19 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 }
 
 export function SlotEditorApp() {
+  const [traceSummary, setTraceSummary] = useState<EditorTraceSummary>({
+    columns: 0,
+    scatterHits: [],
+    symbols: [],
+    wins: [],
+  });
+  const [selectedTraceIndex, setSelectedTraceIndex] = useState<number | null>(null);
+  const onTraceSummaryChange = useCallback((summary: EditorTraceSummary) => {
+    setTraceSummary(summary);
+    setSelectedTraceIndex((currentIndex) =>
+      currentIndex !== null && currentIndex >= summary.wins.length ? null : currentIndex,
+    );
+  }, []);
   const accentColor = useEditorStore((state) => state.accentColor);
   const glowColor = useEditorStore((state) => state.glowColor);
   const glowEnabled = useEditorStore((state) => state.glowEnabled);
@@ -126,8 +140,15 @@ export function SlotEditorApp() {
       }
     >
       <ModulePanel />
-      <EditorCanvas />
-      <LayerPanel />
+      <EditorCanvas
+        onTraceSummaryChange={onTraceSummaryChange}
+        selectedTraceIndex={selectedTraceIndex}
+      />
+      <LayerPanel
+        onSelectedTraceChange={setSelectedTraceIndex}
+        selectedTraceIndex={selectedTraceIndex}
+        traceSummary={traceSummary}
+      />
     </section>
   );
 }

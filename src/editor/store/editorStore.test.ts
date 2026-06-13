@@ -39,6 +39,7 @@ describe("editor store", () => {
     expect(state.canvasZoom).toBe(0.44);
     expect(state.spinSpeed).toBe("normal");
     expect(state.scatterSettings).toEqual({
+      claimMode: "auto",
       enabled: false,
       readMode: "individual",
       scatterCount: 1,
@@ -60,6 +61,17 @@ describe("editor store", () => {
       groups: [],
     });
     expect(state.wildPayouts).toEqual({});
+    expect(state.scatterFreespins).toEqual({
+      1: {
+        2: 1,
+        3: 2,
+        4: 3,
+        5: 4,
+      },
+    });
+    expect(state.scatterFreespinIncrements).toEqual({
+      1: 2,
+    });
     expect(state.lineTraceSettings).toEqual({
       diagonal: true,
       firstReel: false,
@@ -336,17 +348,24 @@ describe("editor store", () => {
   it("stores scatter freespins by symbol and appearance count", () => {
     useEditorStore.getState().setScatterFreespins(1, 3, 12);
     useEditorStore.getState().setScatterFreespins(1, 5, 20);
+    useEditorStore.getState().setScatterFreespinIncrement(1, 2);
 
     expect(useEditorStore.getState().scatterFreespins).toEqual({
       1: {
+        2: 1,
         3: 12,
+        4: 3,
         5: 20,
       },
+    });
+    expect(useEditorStore.getState().scatterFreespinIncrements).toEqual({
+      1: 2,
     });
   });
 
   it("stores scatter rule settings and clamps them to existing cards", () => {
     expect(useEditorStore.getState().scatterSettings).toEqual({
+      claimMode: "auto",
       enabled: false,
       readMode: "individual",
       scatterCount: 1,
@@ -359,6 +378,7 @@ describe("editor store", () => {
     useEditorStore.getState().setScatterSymbol(1, 4);
 
     expect(useEditorStore.getState().scatterSettings).toEqual({
+      claimMode: "auto",
       enabled: true,
       readMode: "individual",
       scatterCount: 3,
@@ -368,6 +388,7 @@ describe("editor store", () => {
     useEditorStore.getState().setReelSetting("cardCount", 2);
 
     expect(useEditorStore.getState().scatterSettings).toEqual({
+      claimMode: "auto",
       enabled: true,
       readMode: "individual",
       scatterCount: 2,
@@ -381,6 +402,92 @@ describe("editor store", () => {
     useEditorStore.getState().setScatterReadMode("traces");
 
     expect(useEditorStore.getState().scatterSettings.readMode).toBe("traces");
+  });
+
+  it("stores how scatter freespins are claimed", () => {
+    expect(useEditorStore.getState().scatterSettings.claimMode).toBe("auto");
+
+    useEditorStore.getState().setScatterClaimMode("save");
+
+    expect(useEditorStore.getState().scatterSettings.claimMode).toBe("save");
+  });
+
+  it("stores editor freespins and updates the HUD data layers", () => {
+    expect(useEditorStore.getState().editorFreeSpins).toBe(0);
+
+    useEditorStore.getState().addEditorFreeSpins(6);
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(6);
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "data-freeSpins")?.textValue,
+    ).toBe("6");
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "landscape-data-freeSpins")
+        ?.textValue,
+    ).toBe("6");
+
+    expect(useEditorStore.getState().consumeEditorFreeSpin()).toBe(true);
+    expect(useEditorStore.getState().editorFreeSpins).toBe(5);
+  });
+
+  it("cycles editor bet presets and updates the bet HUD layer", () => {
+    expect(useEditorStore.getState().editorBet).toBe(10);
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "data-bet")?.textValue,
+    ).toBe("$10");
+
+    useEditorStore.getState().increaseEditorBet();
+    expect(useEditorStore.getState().editorBet).toBe(20);
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "data-bet")?.textValue,
+    ).toBe("$20");
+
+    useEditorStore.getState().decreaseEditorBet();
+    expect(useEditorStore.getState().editorBet).toBe(10);
+
+    useEditorStore.getState().decreaseEditorBet();
+    expect(useEditorStore.getState().editorBet).toBe(10);
+  });
+
+  it("deducts paid spins from balance but not freespins", () => {
+    expect(useEditorStore.getState().editorBalance).toBe(1000);
+
+    expect(useEditorStore.getState().tryDebitEditorBet()).toBe(true);
+    expect(useEditorStore.getState().editorBalance).toBe(990);
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "data-balance")?.textValue,
+    ).toBe("$990");
+
+    useEditorStore.getState().increaseEditorBet();
+    useEditorStore.getState().addEditorFreeSpins(1);
+    expect(useEditorStore.getState().consumeEditorFreeSpin()).toBe(true);
+
+    expect(useEditorStore.getState().editorBalance).toBe(990);
+  });
+
+  it("advances the editor round and updates the HUD data layers", () => {
+    expect(useEditorStore.getState().editorRound).toBe(0);
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "data-roundLabel")?.textValue,
+    ).toBe("#000001");
+
+    useEditorStore.getState().advanceEditorRound();
+
+    expect(useEditorStore.getState().editorRound).toBe(1);
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "data-roundLabel")?.textValue,
+    ).toBe("#000001");
+
+    useEditorStore.getState().advanceEditorRound();
+
+    expect(useEditorStore.getState().editorRound).toBe(2);
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "data-roundLabel")?.textValue,
+    ).toBe("#000002");
+    expect(
+      useEditorStore.getState().layers.find((layer) => layer.id === "landscape-data-roundLabel")
+        ?.textValue,
+    ).toBe("#000002");
   });
 
   it("stores wild rule settings and clamps them to existing cards", () => {

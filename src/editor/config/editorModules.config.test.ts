@@ -7,13 +7,14 @@ import {
   EDITOR_DATA_OPTIONS,
   EDITOR_MODULES,
   REELS_CARDS_MODULE_ID,
+  ROUND_HISTORY_MODULE_ID,
   RULES_COMBINATIONS_MODULE_ID,
   RULES_WINS_MODULE_ID,
 } from "./editorModules.config";
 
 describe("editor module config", () => {
   it("defines the editor modules", () => {
-    expect(EDITOR_MODULES).toHaveLength(4);
+    expect(EDITOR_MODULES).toHaveLength(5);
     expect(EDITOR_MODULES[0]).toMatchObject({
       id: BUTTONS_DATA_MODULE_ID,
       title: "Botones y Datos",
@@ -27,6 +28,10 @@ describe("editor module config", () => {
       title: "Trazados de Victoria",
     });
     expect(EDITOR_MODULES[3]).toMatchObject({
+      id: ROUND_HISTORY_MODULE_ID,
+      title: "Historial de Rondas",
+    });
+    expect(EDITOR_MODULES[4]).toMatchObject({
       id: RULES_COMBINATIONS_MODULE_ID,
       title: "Reglas y Combinaciones",
     });

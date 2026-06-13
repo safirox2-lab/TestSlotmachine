@@ -1,9 +1,11 @@
 import {
   EDITOR_MODULES,
   REELS_CARDS_MODULE_ID,
+  ROUND_HISTORY_MODULE_ID,
   RULES_COMBINATIONS_MODULE_ID,
+  RULES_WINS_MODULE_ID,
 } from "../config/editorModules.config";
-import type { EditorCanvasAspectRatio, EditorLayer } from "../editor.types";
+import type { EditorCanvasAspectRatio, EditorLayer, EditorTraceSummary } from "../editor.types";
 import { useEditorStore } from "../store/editorStore";
 import { getSymbolWeightPercentages, normalizeSymbolWeights } from "../symbolWeights";
 
@@ -77,7 +79,19 @@ function getReelCardCatalogItems(
     .sort((leftItem, rightItem) => leftItem.symbolIndex - rightItem.symbolIndex);
 }
 
-export function LayerPanel() {
+function symbolAt(symbols: number[], columns: number, column: number, row: number): number | null {
+  return symbols[(row - 1) * columns + (column - 1)] ?? null;
+}
+
+export function LayerPanel({
+  onSelectedTraceChange,
+  selectedTraceIndex,
+  traceSummary,
+}: {
+  onSelectedTraceChange?: (index: number | null) => void;
+  selectedTraceIndex?: number | null;
+  traceSummary?: EditorTraceSummary;
+}) {
   const {
     activeModuleId,
     cardGroupSettings,
@@ -88,10 +102,13 @@ export function LayerPanel() {
     moveLayer,
     removeLayer,
     reelSettings,
+    roundHistory,
     scatterSettings,
     selectedLayerId,
+    selectedRoundHistoryRound,
     setSelectedLayer,
     setLayerSymbolImages,
+    setSelectedRoundHistory,
     setSymbolWeight,
     symbolWeights,
     toggleLayerVisibility,
@@ -125,6 +142,254 @@ export function LayerPanel() {
   const normalizedSymbolWeights = normalizeSymbolWeights(symbolWeights, reelSettings.cardCount);
   const symbolWeightPercentages = getSymbolWeightPercentages(symbolWeights, reelSettings.cardCount);
   const groupedSymbolSet = new Set(cardGroupSettings.groups.flat());
+  const reelCardBySymbol = new Map(
+    reelCardCatalogItems.map(({ layer, symbolIndex }) => [symbolIndex, layer]),
+  );
+
+  if (activeModuleId === RULES_WINS_MODULE_ID) {
+    return (
+      <aside className="slot-editor__panel slot-editor__layer-panel" aria-label="Trazados">
+        <span className="slot-editor__panel-label">Layers</span>
+        <div className="slot-editor__layer-panel-header">
+          <strong className="slot-editor__layer-title">Trazados de Victoria</strong>
+        </div>
+        <div className="slot-editor__paying-traces">
+          {traceSummary && (traceSummary.scatterHits.length > 0 || traceSummary.wins.length > 0) ? (
+            <>
+              {traceSummary.scatterHits.map((hit, index) => {
+                const targetLayer = reelCardBySymbol.get(hit.symbol);
+                const targetThumbnail = targetLayer?.symbolImages?.[0];
+                const hitKey = hit.cells.map((cell) => `${cell.column}-${cell.row}`).join("_");
+                return (
+                  <article
+                    className="slot-editor__paying-trace is-scatter-hit"
+                    data-scatter-hit={index + 1}
+                    data-scatter-hit-symbol={hit.symbol}
+                    key={`scatter-hit-${hit.symbol}-${hitKey}`}
+                    style={{ borderColor: "#22c55e" }}
+                  >
+                    <div className="slot-editor__paying-trace-header">
+                      <span style={{ backgroundColor: "#22c55e" }} aria-hidden="true" />
+                      <strong>{`${targetLayer?.label ?? `Carta ${hit.symbol}`} x${hit.count}`}</strong>
+                    </div>
+                    <div className="slot-editor__trace-symbol-row">
+                      {hit.cells.map((cell, cellIndex) => (
+                        <span
+                          className="slot-editor__trace-symbol is-scatter"
+                          data-scatter-symbol-thumb={cellIndex + 1}
+                          key={`scatter-hit-cell-${hit.symbol}-${cell.column}-${cell.row}`}
+                          title={targetLayer?.label}
+                        >
+                          {targetThumbnail ? (
+                            <img src={targetThumbnail.src} alt="" />
+                          ) : (
+                            <span>{hit.symbol}</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                );
+              })}
+              {traceSummary.wins.map((win, index) => {
+                const targetLayer = reelCardBySymbol.get(win.symbol);
+                const targetThumbnail = targetLayer?.symbolImages?.[0];
+                const winKey = win.cells.map((cell) => `${cell.column}-${cell.row}`).join("_");
+                return (
+                  <button
+                    className={[
+                      "slot-editor__paying-trace",
+                      selectedTraceIndex === index ? "is-selected" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    data-paying-trace={index + 1}
+                    data-paying-trace-symbol={win.symbol}
+                    data-selected={selectedTraceIndex === index ? "true" : "false"}
+                    key={`paying-trace-${win.direction}-${win.symbol}-${winKey}`}
+                    onClick={() =>
+                      onSelectedTraceChange?.(selectedTraceIndex === index ? null : index)
+                    }
+                    style={{ borderColor: win.color }}
+                    type="button"
+                  >
+                    <div className="slot-editor__paying-trace-header">
+                      <span style={{ backgroundColor: win.color }} aria-hidden="true" />
+                      <strong>{`${targetLayer?.label ?? `Carta ${win.symbol}`} x${win.cells.length}`}</strong>
+                    </div>
+                    <div className="slot-editor__trace-symbol-row">
+                      {win.cells.map((cell, cellIndex) => {
+                        const actualSymbol = symbolAt(
+                          traceSummary.symbols,
+                          traceSummary.columns,
+                          cell.column,
+                          cell.row,
+                        );
+                        const isWildTransform =
+                          actualSymbol !== null &&
+                          wildSettings.enabled &&
+                          wildSettings.wildSymbols.includes(actualSymbol) &&
+                          actualSymbol !== win.symbol;
+                        return (
+                          <span
+                            className={[
+                              "slot-editor__trace-symbol",
+                              isWildTransform ? "is-wild-transform" : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                            data-trace-symbol-thumb={cellIndex + 1}
+                            data-wild-transform={isWildTransform ? "true" : "false"}
+                            key={`trace-cell-${cell.column}-${cell.row}`}
+                            title={
+                              isWildTransform
+                                ? `Wild transformada en ${targetLayer?.label ?? `Carta ${win.symbol}`}`
+                                : targetLayer?.label
+                            }
+                          >
+                            {targetThumbnail ? (
+                              <img src={targetThumbnail.src} alt="" />
+                            ) : (
+                              <span>{win.symbol}</span>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </button>
+                );
+              })}
+            </>
+          ) : (
+            <div className="slot-editor__rules-empty is-compact">
+              <strong>Sin trazados pagados</strong>
+              <span>Al completar un giro, aqui veras las lineas y sus Wild.</span>
+            </div>
+          )}
+        </div>
+      </aside>
+    );
+  }
+
+  if (activeModuleId === ROUND_HISTORY_MODULE_ID) {
+    const selectedHistoryRound =
+      roundHistory.find((entry) => entry.round === selectedRoundHistoryRound) ?? roundHistory[0];
+
+    return (
+      <aside className="slot-editor__panel slot-editor__layer-panel" aria-label="Historial">
+        <span className="slot-editor__panel-label">Layers</span>
+        <div className="slot-editor__layer-panel-header">
+          <strong className="slot-editor__layer-title">Historial de Rondas</strong>
+        </div>
+        <div className="slot-editor__round-history-list">
+          {roundHistory.length > 0 ? (
+            roundHistory.map((entry) => {
+              const isSelected = selectedHistoryRound?.round === entry.round;
+              return (
+                <article
+                  className={["slot-editor__round-history-row", isSelected ? "is-selected" : ""]
+                    .filter(Boolean)
+                    .join(" ")}
+                  data-round-history-row={entry.round}
+                  key={`round-history-${entry.round}`}
+                >
+                  <button type="button" onClick={() => setSelectedRoundHistory(entry.round)}>
+                    <strong>{`Ronda #${String(entry.round).padStart(6, "0")}`}</strong>
+                    <span>{`${entry.spinType === "free-spin" ? "Freespin" : "Pagada"} / ${
+                      entry.wins.length
+                    } trazos / ${entry.scatterHits.length} scatter`}</span>
+                  </button>
+                  {isSelected ? (
+                    <div className="slot-editor__round-history-trace-list">
+                      {entry.wins.length > 0 || entry.scatterHits.length > 0 ? (
+                        <>
+                          {entry.wins.map((win, index) => {
+                            const targetLayer = reelCardBySymbol.get(win.symbol);
+                            const targetThumbnail = targetLayer?.symbolImages?.[0];
+                            const winKey = win.cells
+                              .map((cell) => `${cell.column}-${cell.row}`)
+                              .join("_");
+                            return (
+                              <button
+                                className={[
+                                  "slot-editor__paying-trace",
+                                  selectedTraceIndex === index ? "is-selected" : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                                data-round-history-trace={index + 1}
+                                key={`history-trace-${entry.round}-${winKey}`}
+                                onClick={() =>
+                                  onSelectedTraceChange?.(
+                                    selectedTraceIndex === index ? null : index,
+                                  )
+                                }
+                                style={{ borderColor: win.color }}
+                                type="button"
+                              >
+                                <div className="slot-editor__paying-trace-header">
+                                  <span style={{ backgroundColor: win.color }} aria-hidden="true" />
+                                  <strong>{`${targetLayer?.label ?? `Carta ${win.symbol}`} x${win.cells.length}`}</strong>
+                                </div>
+                                <div className="slot-editor__trace-symbol-row">
+                                  {win.cells.map((cell, cellIndex) => (
+                                    <span
+                                      className="slot-editor__trace-symbol"
+                                      data-trace-symbol-thumb={cellIndex + 1}
+                                      key={`history-trace-cell-${cell.column}-${cell.row}`}
+                                    >
+                                      {targetThumbnail ? (
+                                        <img src={targetThumbnail.src} alt="" />
+                                      ) : (
+                                        <span>{win.symbol}</span>
+                                      )}
+                                    </span>
+                                  ))}
+                                </div>
+                              </button>
+                            );
+                          })}
+                          {entry.scatterHits.map((hit, index) => {
+                            const targetLayer = reelCardBySymbol.get(hit.symbol);
+                            const hitKey = hit.cells
+                              .map((cell) => `${cell.column}-${cell.row}`)
+                              .join("_");
+                            return (
+                              <article
+                                className="slot-editor__paying-trace is-scatter-hit"
+                                data-round-history-trace={`scatter-${index + 1}`}
+                                key={`history-scatter-${entry.round}-${hit.symbol}-${hitKey}`}
+                                style={{ borderColor: "#22c55e" }}
+                              >
+                                <div className="slot-editor__paying-trace-header">
+                                  <span style={{ backgroundColor: "#22c55e" }} aria-hidden="true" />
+                                  <strong>{`${targetLayer?.label ?? `Carta ${hit.symbol}`} x${hit.count}`}</strong>
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </>
+                      ) : (
+                        <div className="slot-editor__rules-empty is-compact">
+                          <strong>Sin trazos pagados</strong>
+                          <span>Esta ronda no tuvo lineas cobradas.</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })
+          ) : (
+            <div className="slot-editor__rules-empty is-compact">
+              <strong>Sin rondas</strong>
+              <span>Al completar un giro, aqui se guardara su historial.</span>
+            </div>
+          )}
+        </div>
+      </aside>
+    );
+  }
 
   if (activeModuleId === RULES_COMBINATIONS_MODULE_ID) {
     return (

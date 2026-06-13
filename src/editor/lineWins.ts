@@ -333,7 +333,11 @@ function recolorWins(wins: LineWin[]): LineWin[] {
 }
 
 function getWinPayout(win: LineWin, linePayouts: LinePayouts): number {
-  return linePayouts[win.symbol]?.[win.cells.length] ?? 0;
+  return linePayouts[win.symbol]?.[win.cells.length] ?? 1;
+}
+
+function keepPayingWins(wins: LineWin[], linePayouts: LinePayouts): LineWin[] {
+  return wins.filter((win) => getWinPayout(win, linePayouts) > 0);
 }
 
 function getWildCellKeys({
@@ -795,23 +799,29 @@ export function detectLineWins({
 
   if (wildLineRule !== "highest-paying") {
     return recolorWins(
-      keepHigherPayingWildOnlyConflicts({
+      keepPayingWins(
+        keepHigherPayingWildOnlyConflicts({
+          columns,
+          linePayouts,
+          symbols: groupedSymbols,
+          wildSymbols: wildSymbolSet,
+          wins: [...dedupedWins, ...wildOnlyWins],
+        }),
+        linePayouts,
+      ),
+    );
+  }
+
+  return recolorWins(
+    keepPayingWins(
+      keepHighestPayingWildWins({
         columns,
         linePayouts,
         symbols: groupedSymbols,
         wildSymbols: wildSymbolSet,
         wins: [...dedupedWins, ...wildOnlyWins],
       }),
-    );
-  }
-
-  return recolorWins(
-    keepHighestPayingWildWins({
-      columns,
       linePayouts,
-      symbols: groupedSymbols,
-      wildSymbols: wildSymbolSet,
-      wins: [...dedupedWins, ...wildOnlyWins],
-    }),
+    ),
   );
 }

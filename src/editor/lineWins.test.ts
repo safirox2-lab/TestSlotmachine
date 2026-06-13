@@ -348,6 +348,66 @@ describe("line win detection", () => {
     ]);
   });
 
+  it("uses payout multipliers to choose between a wild-only prize and a bridged prize", () => {
+    const baseSpin = {
+      columns: 5,
+      rows: 1,
+      settings: {
+        diagonal: false,
+        horizontal: true,
+        vertical: false,
+        zigzag: false,
+      },
+      symbols: [9, 9, 9, 1, 1],
+      wildLineRule: "highest-paying" as const,
+      wildSymbols: [9],
+    };
+
+    expect(
+      detectLineWins({
+        ...baseSpin,
+        linePayouts: {
+          1: { 5: 1 },
+          9: { 3: 2 },
+        },
+      }),
+    ).toEqual([
+      {
+        cells: [
+          { column: 1, row: 1 },
+          { column: 2, row: 1 },
+          { column: 3, row: 1 },
+        ],
+        color: "#22c55e",
+        direction: "horizontal",
+        symbol: 9,
+      },
+    ]);
+
+    expect(
+      detectLineWins({
+        ...baseSpin,
+        linePayouts: {
+          1: { 5: 3 },
+          9: { 3: 2 },
+        },
+      }),
+    ).toEqual([
+      {
+        cells: [
+          { column: 1, row: 1 },
+          { column: 2, row: 1 },
+          { column: 3, row: 1 },
+          { column: 4, row: 1 },
+          { column: 5, row: 1 },
+        ],
+        color: "#22c55e",
+        direction: "horizontal",
+        symbol: 1,
+      },
+    ]);
+  });
+
   it("compares wild-only runs against bridged card runs even without highest pay mode", () => {
     expect(
       detectLineWins({

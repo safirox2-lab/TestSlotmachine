@@ -5,8 +5,11 @@ import { join } from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LayerPanel } from "./components/LayerPanel";
+import { countLineTracePossibilities } from "./lineWins";
 import { SlotEditorApp } from "./SlotEditorApp";
 import { useEditorStore } from "./store/editorStore";
+import { getSymbolWeightPercentages } from "./symbolWeights";
 
 let host: HTMLDivElement;
 
@@ -49,6 +52,7 @@ describe("SlotEditorApp", () => {
     expect(host.textContent).toContain("Botones y Datos");
     expect(host.textContent).toContain("Reels y Cartas");
     expect(host.textContent).toContain("Trazados de Victoria");
+    expect(host.textContent).toContain("Historial de Rondas");
     expect(host.textContent).toContain("Reglas y Combinaciones");
     expect(host.textContent).toContain("Agregar Boton");
     expect(host.textContent).toContain("Agregar Datos");
@@ -65,6 +69,7 @@ describe("SlotEditorApp", () => {
       "Botones y Datos",
       "Reels y Cartas",
       "Trazados de Victoria",
+      "Historial de Rondas",
       "Reglas y Combinaciones",
     ]);
     expect(moduleTitles).not.toContain("Datos del panel");
@@ -263,6 +268,7 @@ describe("SlotEditorApp", () => {
     });
 
     expect(useEditorStore.getState().scatterSettings).toEqual({
+      claimMode: "auto",
       enabled: true,
       readMode: "individual",
       scatterCount: 2,
@@ -436,7 +442,7 @@ describe("SlotEditorApp", () => {
 
     expect(host.querySelector(".slot-editor__phone")).toBeNull();
     expect(host.querySelector(".slot-editor__rules-combinations-workspace")).not.toBeNull();
-    expect(host.textContent).toContain("6 combinaciones");
+    expect(host.textContent).toContain("17 combinaciones");
     expect(host.querySelector(".slot-editor__combination-table")?.textContent).not.toContain(
       "Carta 1",
     );
@@ -470,16 +476,60 @@ describe("SlotEditorApp", () => {
     expect(specialSectionsText).toContain("chance");
     expect(
       host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x2"]')?.value,
-    ).toBe("0");
+    ).toBe("1");
     expect(
-      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x5"]'),
-    ).not.toBeNull();
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x3"]')?.value,
+    ).toBe("2");
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x4"]')?.value,
+    ).toBe("3");
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x5"]')?.value,
+    ).toBe("4");
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Incremento Freespins Carta 1 +5"]')
+        ?.value,
+    ).toBe("2");
+    const getDisplayedChance = (inputLabel: string) => {
+      const label = host
+        .querySelector<HTMLInputElement>(`input[aria-label="${inputLabel}"]`)
+        ?.closest("label");
+      const text =
+        label?.querySelector(".slot-editor__special-chance")?.textContent ??
+        label?.querySelector("span")?.textContent ??
+        "";
+      return Number(/([\d.]+)% chance/.exec(text)?.[1] ?? Number.NaN);
+    };
+    const wildX3Chance = getDisplayedChance("Wild Carta 2 x3");
+    const jackpotX3Chance = getDisplayedChance("Jackpot Carta 3 x3");
+    const normalX3Chance = getDisplayedChance("Pago Carta 5 x3");
+    const lineTraceCountX3 = countLineTracePossibilities({
+      columns: useEditorStore.getState().reelSettings.columns,
+      matchCount: 3,
+      rows: useEditorStore.getState().reelSettings.rows,
+      settings: useEditorStore.getState().lineTraceSettings,
+    });
+    const symbolProbability =
+      (getSymbolWeightPercentages(
+        useEditorStore.getState().symbolWeights,
+        useEditorStore.getState().reelSettings.cardCount,
+      )[1] ?? 0) / 100;
+    const expectedSpecialTraceChance = (1 - (1 - symbolProbability ** 3) ** lineTraceCountX3) * 100;
+
+    expect(wildX3Chance).toBeCloseTo(expectedSpecialTraceChance, 4);
+    expect(jackpotX3Chance).toBeCloseTo(expectedSpecialTraceChance, 4);
+    expect(wildX3Chance).toBeLessThan(normalX3Chance);
+    expect(jackpotX3Chance).toBeLessThan(normalX3Chance);
+    expect(jackpotX3Chance).toBeCloseTo(wildX3Chance, 4);
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Wild Carta 2 x3"]')?.value).toBe(
-      "0",
+      "2",
     );
     expect(
       host.querySelector<HTMLInputElement>('input[aria-label="Wild Carta 2 x5"]'),
     ).not.toBeNull();
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Jackpot Carta 3 x3"]')?.value,
+    ).toBe("3");
 
     act(() => {
       const freespinsInput = host.querySelector<HTMLInputElement>(
@@ -492,6 +542,17 @@ describe("SlotEditorApp", () => {
     });
 
     expect(useEditorStore.getState().scatterFreespins[1]?.[3]).toBe(10);
+    act(() => {
+      const scatterIncrementInput = host.querySelector<HTMLInputElement>(
+        'input[aria-label="Incremento Freespins Carta 1 +5"]',
+      );
+      if (scatterIncrementInput) {
+        scatterIncrementInput.value = "2";
+        scatterIncrementInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().scatterFreespinIncrements[1]).toBe(2);
     act(() => {
       const wildInput = host.querySelector<HTMLInputElement>('input[aria-label="Wild Carta 2 x3"]');
       if (wildInput) {
@@ -526,7 +587,7 @@ describe("SlotEditorApp", () => {
     expect(host.querySelector('[data-combination-symbol="-1"]')).not.toBeNull();
     expect(host.querySelector(".slot-editor__combination-table")?.textContent).toContain("Grupo 1");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Pago Grupo 1 x3"]')?.value).toBe(
-      "0",
+      "1",
     );
 
     act(() => {
@@ -557,6 +618,59 @@ describe("SlotEditorApp", () => {
 
     expect(useEditorStore.getState().symbolWeights).toEqual([8, 1, 1, 1, 1]);
     expect(host.querySelector(".slot-editor__rules-side-list")?.textContent).toContain("66.67%");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps scatter freespin values capped at x5 and uses an extra increment counter", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().setReelSetting("columns", 7);
+      useEditorStore.getState().addReel();
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setActiveModule("rules-combinations");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x5"]'),
+    ).not.toBeNull();
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x6"]'),
+    ).toBeNull();
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x7"]'),
+    ).toBeNull();
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Incremento Freespins Carta 1 +5"]')
+        ?.value,
+    ).toBe("2");
+    expect(host.querySelector(".slot-editor__scatter-freespins-grid")?.textContent).toContain(
+      "x7 = 8",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("hides the scatter freespin increment when scatter is read by traces", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().addReel();
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setScatterReadMode("traces");
+      useEditorStore.getState().setActiveModule("rules-combinations");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Incremento Freespins Carta 1 +5"]'),
+    ).toBeNull();
 
     act(() => root.unmount());
   });
@@ -637,17 +751,25 @@ describe("SlotEditorApp", () => {
     act(() => root.unmount());
   });
 
-  it("configures scatter reading from Trazados de Victoria", () => {
+  it("configures scatter reading from Regla de Scatters", () => {
     const root = renderEditor();
 
-    expect(findModuleSection("Trazados de Victoria")?.textContent).toContain("Lectura de Scatter");
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-combinations");
+      root.render(<SlotEditorApp />);
+    });
 
-    const scatterReadSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
-      summary.textContent?.includes("Lectura de Scatter"),
+    expect(findModuleSection("Trazados de Victoria")?.textContent).not.toContain(
+      "Lectura de Scatter",
+    );
+    expect(findModuleSection("Reglas y Combinaciones")?.textContent).toContain("Regla de Scatters");
+
+    const scatterRuleSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Regla de Scatters"),
     );
 
     act(() => {
-      scatterReadSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      scatterRuleSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const individualButton = host.querySelector<HTMLButtonElement>(
@@ -701,6 +823,188 @@ describe("SlotEditorApp", () => {
 
     expect(useEditorStore.getState().lineValidationMode).toBe("cascade");
     expect(cascadeButton?.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("shows paying traces with wild transformations in Trazados de Victoria layers", () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    let selectedTraceIndex: number | null = null;
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-wins");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().addReel();
+      useEditorStore
+        .getState()
+        .setLayerSymbolImages("reel-card-1-1", [{ name: "wild.png", src: "blob:wild.png" }]);
+      useEditorStore
+        .getState()
+        .setLayerSymbolImages("reel-card-2-1", [{ name: "a.png", src: "blob:a.png" }]);
+      useEditorStore.getState().setWildEnabled(true);
+      useEditorStore.getState().setWildSymbol(0, 1);
+      root.render(
+        <LayerPanel
+          selectedTraceIndex={selectedTraceIndex}
+          onSelectedTraceChange={(index) => {
+            selectedTraceIndex = index;
+          }}
+          traceSummary={{
+            columns: 5,
+            scatterHits: [],
+            symbols: [1, 2, 2, 2, 3, 1, 1, 1, 3, 3, 1, 1, 2, 3, 3],
+            wins: [
+              {
+                cells: [
+                  { column: 1, row: 1 },
+                  { column: 2, row: 1 },
+                  { column: 3, row: 1 },
+                  { column: 4, row: 1 },
+                ],
+                color: "#22c55e",
+                direction: "horizontal",
+                symbol: 2,
+              },
+              {
+                cells: [
+                  { column: 1, row: 2 },
+                  { column: 2, row: 2 },
+                  { column: 3, row: 2 },
+                ],
+                color: "#f97316",
+                direction: "horizontal",
+                symbol: 1,
+              },
+              {
+                cells: [
+                  { column: 1, row: 3 },
+                  { column: 2, row: 3 },
+                  { column: 3, row: 3 },
+                ],
+                color: "#38bdf8",
+                direction: "horizontal",
+                symbol: 2,
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    expect(host.querySelectorAll("[data-paying-trace]")).toHaveLength(3);
+    expect(host.textContent).toContain("Carta 2 x4");
+    expect(host.textContent).toContain("Carta 1 x3");
+    expect(host.textContent).toContain("Carta 2 x3");
+    expect(host.querySelectorAll("[data-wild-transform='true']")).toHaveLength(3);
+    expect(host.querySelectorAll("[data-paying-trace='1'] [data-trace-symbol-thumb]")).toHaveLength(
+      4,
+    );
+    expect(
+      host.querySelector("[data-paying-trace='1'] [data-wild-transform='true']"),
+    ).not.toBeNull();
+
+    act(() => {
+      host
+        .querySelector<HTMLElement>("[data-paying-trace='2']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(selectedTraceIndex).toBe(1);
+
+    act(() => root.unmount());
+  });
+
+  it("shows individual scatter hits in Trazados de Victoria layers", () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-wins");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().addReel();
+      useEditorStore
+        .getState()
+        .setLayerSymbolImages("reel-card-1-1", [{ name: "scatter.png", src: "blob:scatter.png" }]);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      root.render(
+        <LayerPanel
+          traceSummary={{
+            columns: 5,
+            scatterHits: [
+              {
+                cells: [
+                  { column: 1, row: 1 },
+                  { column: 3, row: 2 },
+                  { column: 5, row: 4 },
+                ],
+                count: 3,
+                symbol: 1,
+              },
+            ],
+            symbols: [1, 2, 2, 2, 3, 2, 2, 1, 3, 3, 2, 2, 2, 3, 3, 2, 2, 2, 3, 1],
+            wins: [],
+          }}
+        />,
+      );
+    });
+
+    expect(host.querySelectorAll("[data-scatter-hit]")).toHaveLength(1);
+    expect(host.querySelector("[data-scatter-hit='1']")?.textContent).toContain("Carta 1 x3");
+    expect(
+      host.querySelectorAll("[data-scatter-hit='1'] [data-scatter-symbol-thumb]"),
+    ).toHaveLength(3);
+
+    act(() => root.unmount());
+  });
+
+  it("configures the scatter freespin claim rule from Reglas y Combinaciones", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-combinations");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(findModuleSection("Reglas y Combinaciones")?.textContent).toContain("Regla de Scatters");
+
+    const scatterRuleSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Regla de Scatters"),
+    );
+
+    act(() => {
+      scatterRuleSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const autoButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Canjear freespins automaticamente"]',
+    );
+    const saveButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Guardar freespins de scatter"]',
+    );
+    const individualButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Scatter con valor individual"]',
+    );
+    const tracesButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Scatter cuenta para trazados"]',
+    );
+
+    expect(autoButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(saveButton?.getAttribute("aria-pressed")).toBe("false");
+    expect(individualButton).not.toBeNull();
+    expect(tracesButton).not.toBeNull();
+
+    act(() => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().scatterSettings.claimMode).toBe("save");
+    expect(autoButton?.getAttribute("aria-pressed")).toBe("false");
+    expect(saveButton?.getAttribute("aria-pressed")).toBe("true");
 
     act(() => root.unmount());
   });
@@ -1114,6 +1418,24 @@ describe("SlotEditorApp", () => {
     expect(host.querySelector("[data-win-trace-direction='horizontal']")).not.toBeNull();
     expect(host.querySelector("[data-win-trace-direction='vertical']")).not.toBeNull();
     expect(host.querySelector("[data-win-trace-direction='diagonal']")).not.toBeNull();
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-wins");
+      root.render(<SlotEditorApp />);
+    });
+
+    const secondPayingTrace = host.querySelector<HTMLElement>("[data-paying-trace='2']");
+    const secondTraceSymbol = secondPayingTrace?.getAttribute("data-paying-trace-symbol");
+    act(() => {
+      secondPayingTrace?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const selectedWinTraces = host.querySelectorAll("[data-win-trace]");
+    expect(selectedWinTraces).toHaveLength(1);
+    expect(host.querySelector("[data-win-traces]")?.getAttribute("data-selected-trace")).toBe(
+      "true",
+    );
+    expect(selectedWinTraces[0]?.getAttribute("data-selected-trace")).toBe("true");
+    expect(selectedWinTraces[0]?.getAttribute("data-win-trace-symbol")).toBe(secondTraceSymbol);
     expect(
       useEditorStore
         .getState()
@@ -1123,6 +1445,493 @@ describe("SlotEditorApp", () => {
         .every((layer) => layer.symbolIndex === 7),
     ).toBe(true);
     expect(randomSpy).toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("glows individual scatter slots after a spin when their sentence is met", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().addReel();
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(host.querySelectorAll("[data-scatter-glow-cell]")).toHaveLength(20);
+    expect(host.querySelector("[data-scatter-glows]")?.getAttribute("data-scatter-count")).toBe(
+      "20",
+    );
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-wins");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelector("[data-scatter-hit='1']")?.textContent).toContain("Carta 1 x20");
+
+    act(() => root.unmount());
+  });
+
+  it("adds saved scatter freespins to the HUD after a scatter win", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterClaimMode("save");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setScatterFreespins(1, 5, 4);
+      useEditorStore.getState().setScatterFreespinIncrement(1, 2);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(34);
+    expect(host.querySelector('[data-layer-id="data-freeSpins"]')?.textContent).toContain(
+      "FREESPINS34",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("automatically consumes scatter freespins before the next free spin", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterClaimMode("auto");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setScatterFreespins(1, 5, 4);
+      useEditorStore.getState().setScatterFreespinIncrement(1, 2);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(34);
+    expect(
+      host
+        .querySelector<HTMLElement>('[data-layer-id="button-spin"]')
+        ?.getAttribute("data-play-locked"),
+    ).toBe("true");
+
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(33);
+    expect(
+      host
+        .querySelector<HTMLElement>('[data-layer-id="button-spin"]')
+        ?.getAttribute("data-play-locked"),
+    ).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("prioritizes freespin consumption while autoplay is active in automatic claim mode", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterClaimMode("auto");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setScatterFreespins(1, 5, 4);
+      useEditorStore.getState().setScatterFreespinIncrement(1, 2);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-autoplay"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(34);
+
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(33);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps saved freespins untouched while autoplay continues in save claim mode", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterClaimMode("save");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setScatterFreespins(1, 5, 4);
+      useEditorStore.getState().setScatterFreespinIncrement(1, 2);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-autoplay"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(34);
+
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+
+    expect(useEditorStore.getState().editorFreeSpins).toBe(34);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps reels spinning when symbol weights change live", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.4);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 8);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(120);
+    });
+
+    const spinningStep = host
+      .querySelector("[data-reel-motion-window='true']")
+      ?.querySelector("[data-reel-column]")
+      ?.getAttribute("data-reel-column");
+
+    expect(host.querySelector("[data-reel-motion-window='true']")).not.toBeNull();
+    expect(spinningStep).not.toBeNull();
+
+    act(() => {
+      useEditorStore.getState().setSymbolWeight(1, 3);
+      vi.advanceTimersByTime(120);
+    });
+
+    expect(host.querySelector("[data-reel-motion-window='true']")).not.toBeNull();
+    expect(
+      host
+        .querySelector<HTMLElement>('[data-layer-id="button-spin"]')
+        ?.getAttribute("data-play-locked"),
+    ).toBe("true");
+
+    act(() => {
+      vi.advanceTimersByTime(6000);
+    });
+
+    expect(
+      host
+        .querySelector<HTMLElement>('[data-layer-id="button-spin"]')
+        ?.getAttribute("data-play-locked"),
+    ).not.toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("increments the round counter for every spin and automatic freespin", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterClaimMode("auto");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setScatterFreespins(1, 5, 4);
+      useEditorStore.getState().setScatterFreespinIncrement(1, 2);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    const roundLayer = () => host.querySelector('[data-layer-id="data-roundLabel"]')?.textContent;
+
+    expect(roundLayer()).toContain("RONDA#000001");
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorRound).toBe(1);
+    expect(roundLayer()).toContain("RONDA#000001");
+
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+
+    expect(useEditorStore.getState().editorRound).toBe(2);
+    expect(roundLayer()).toContain("RONDA#000002");
+
+    act(() => root.unmount());
+  });
+
+  it("updates bet buttons and debits balance only for paid spins", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterReadMode("individual");
+      useEditorStore.getState().setScatterClaimMode("auto");
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setScatterFreespins(1, 5, 4);
+      useEditorStore.getState().setScatterFreespinIncrement(1, 2);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    const balanceLayer = () => host.querySelector('[data-layer-id="data-balance"]')?.textContent;
+    const betLayer = () => host.querySelector('[data-layer-id="data-bet"]')?.textContent;
+
+    expect(balanceLayer()).toContain("BALANCE$1,000");
+    expect(betLayer()).toContain("APUESTA$10");
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-betIncrease"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().editorBet).toBe(20);
+    expect(betLayer()).toContain("APUESTA$20");
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-betDecrease"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().editorBet).toBe(10);
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorBalance).toBe(990);
+    expect(balanceLayer()).toContain("BALANCE$990");
+
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+
+    expect(useEditorStore.getState().editorBalance).toBe(990);
+
+    act(() => {
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorBalance).toBe(990);
+    expect(useEditorStore.getState().roundHistory[0]).toMatchObject({
+      spinType: "free-spin",
+      wager: 0,
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("stores completed rounds and reviews their winning traces from round history", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().roundHistory).toHaveLength(1);
+    expect(useEditorStore.getState().roundHistory[0]).toMatchObject({
+      round: 1,
+      columns: 5,
+      rows: 4,
+    });
+    expect(useEditorStore.getState().roundHistory[0]?.wins.length).toBeGreaterThan(0);
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("round-history");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelector(".slot-editor__round-history-workspace")).not.toBeNull();
+    expect(host.querySelector("[data-round-history-grid='true']")).not.toBeNull();
+    expect(host.querySelector("[data-round-history-row='1']")?.textContent).toContain(
+      "Ronda #000001",
+    );
+    expect(host.querySelectorAll("[data-round-history-trace]")).not.toHaveLength(0);
+    expect(host.querySelectorAll("[data-history-win-trace]")).not.toHaveLength(0);
+
+    act(() => root.unmount());
+  });
+
+  it("records balance changes and payouts in round history", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setLineTraceEnabled("vertical", false);
+      useEditorStore.getState().setLineTraceEnabled("diagonal", false);
+      useEditorStore.getState().setLineTraceEnabled("zigzag", false);
+      useEditorStore.getState().setCombinationPayout(1, 5, 2);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorBalance).toBe(1070);
+    expect(useEditorStore.getState().roundHistory[0]).toMatchObject({
+      balanceAfter: 1070,
+      balanceBefore: 1000,
+      netBalanceChange: 70,
+      payout: 80,
+      wager: 10,
+    });
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("round-history");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelector("[data-round-history-economy]")?.textContent).toContain(
+      "Ganancia$80",
+    );
+    expect(host.querySelector("[data-round-history-economy]")?.textContent).toContain(
+      "OrigenPagada",
+    );
+    expect(host.querySelector("[data-round-history-economy]")?.textContent).toContain(
+      "Balance$1,000 -> $1,070",
+    );
+    expect(host.querySelector("[data-round-history-economy]")?.textContent).toContain("Neto+$70");
+
+    act(() => root.unmount());
+  });
+
+  it("ignores winning lines whose payout multiplier is zero", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 3);
+      useEditorStore.getState().setLineTraceEnabled("vertical", false);
+      useEditorStore.getState().setLineTraceEnabled("diagonal", false);
+      useEditorStore.getState().setLineTraceEnabled("zigzag", false);
+      useEditorStore.getState().setCombinationPayout(1, 5, 0);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5500);
+    });
+
+    expect(useEditorStore.getState().editorBalance).toBe(990);
+    expect(useEditorStore.getState().roundHistory[0]).toMatchObject({
+      netBalanceChange: -10,
+      payout: 0,
+      wager: 10,
+      wins: [],
+    });
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("round-history");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelectorAll("[data-history-win-trace]")).toHaveLength(0);
 
     act(() => root.unmount());
   });
@@ -1290,6 +2099,7 @@ describe("SlotEditorApp", () => {
 
     expect(spinButton?.disabled).toBe(true);
     expect(spinButton?.className).toContain("is-play-locked");
+    expect(useEditorStore.getState().roundHistory).toHaveLength(0);
 
     act(() => {
       vi.advanceTimersByTime(850);
@@ -1307,6 +2117,19 @@ describe("SlotEditorApp", () => {
 
     expect(spinButton?.disabled).toBe(false);
     expect(spinButton?.className).not.toContain("is-play-locked");
+    const visibleGridSymbols = useEditorStore
+      .getState()
+      .layers.filter((layer) => layer.id.startsWith("reel-card-"))
+      .sort((leftLayer, rightLayer) => {
+        if (leftLayer.y === rightLayer.y) {
+          return leftLayer.x - rightLayer.x;
+        }
+        return leftLayer.y - rightLayer.y;
+      })
+      .map((layer) => layer.symbolIndex);
+
+    expect(useEditorStore.getState().roundHistory).toHaveLength(1);
+    expect(useEditorStore.getState().roundHistory[0]?.symbols).toEqual(visibleGridSymbols);
 
     act(() => root.unmount());
   });

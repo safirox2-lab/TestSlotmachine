@@ -63,6 +63,7 @@ export function EditorButtonPreview({
       aria-label={label}
       {...(isOutsideCanvas ? { "data-outside-layer-id": layerId } : { "data-layer-id": layerId })}
       {...(isDisabledByModule ? { "data-layer-disabled": "true" } : {})}
+      {...(isPlayLocked ? { "data-play-locked": "true" } : {})}
       disabled={isPlayLocked}
       onClick={onClick}
       onPointerDown={onPointerDown}

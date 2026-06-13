@@ -3,9 +3,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveCascadeWins } from "../cascadeWins";
 import {
   REELS_CARDS_MODULE_ID,
+  ROUND_HISTORY_MODULE_ID,
   RULES_COMBINATIONS_MODULE_ID,
 } from "../config/editorModules.config";
-import type { EditorCanvasAspectRatio, EditorLayer } from "../editor.types";
+import type {
+  EditorCanvasAspectRatio,
+  EditorLayer,
+  EditorScatterHit,
+  EditorTraceSummary,
+} from "../editor.types";
 import { countLineTracePossibilities, detectLineWins } from "../lineWins";
 import {
   advanceReelMotionWindow,
@@ -67,6 +73,10 @@ const AUTOPLAY_NEXT_SPIN_MS = 650;
 const CASCADE_TRACE_PAUSE_MS = 850;
 const CASCADE_SETTLE_PAUSE_MS = 360;
 const STOP_ICON_SRC = "/raw/icon_stop.svg";
+const DEFAULT_SCATTER_FREESPIN_INCREMENT = 2;
+const DEFAULT_NORMAL_PAYOUT_MULTIPLIER = 1;
+const DEFAULT_WILD_PAYOUT_MULTIPLIER = 2;
+const DEFAULT_JACKPOT_PAYOUT_MULTIPLIER = 3;
 const DEFAULT_CANVAS_PAN_BY_ASPECT: Record<EditorCanvasAspectRatio, { x: number; y: number }> = {
   "9:16": { x: 0, y: -520 },
   "16:9": { x: 0, y: -180 },
@@ -74,6 +84,11 @@ const DEFAULT_CANVAS_PAN_BY_ASPECT: Record<EditorCanvasAspectRatio, { x: number;
 
 function toStablePixelValue(value: number): number {
   return Number(value.toFixed(4));
+}
+
+function formatEditorMoney(amount: number): string {
+  const safeAmount = Math.max(0, Math.round(Number.isFinite(amount) ? amount : 0));
+  return `$${safeAmount.toLocaleString("en-US")}`;
 }
 
 interface ReelPlayFrame {
@@ -217,8 +232,36 @@ function getAppearanceManifestChance({
   return chance * 100;
 }
 
-export function EditorCanvas() {
+function getScatterFreespinAward({
+  appearanceCount,
+  freespinIncrement,
+  freespins,
+}: {
+  appearanceCount: number;
+  freespinIncrement: number;
+  freespins: Record<number, number> | undefined;
+}): number {
+  if (appearanceCount < 2) {
+    return 0;
+  }
+  if (appearanceCount <= 5) {
+    return freespins?.[appearanceCount] ?? 0;
+  }
+
+  return (freespins?.[5] ?? 0) + freespinIncrement * (appearanceCount - 5);
+}
+
+interface EditorCanvasProps {
+  onTraceSummaryChange?: (summary: EditorTraceSummary) => void;
+  selectedTraceIndex?: number | null;
+}
+
+export function EditorCanvas({
+  onTraceSummaryChange,
+  selectedTraceIndex = null,
+}: EditorCanvasProps = {}) {
   const [canvasPanByAspect, setCanvasPanByAspect] = useState(DEFAULT_CANVAS_PAN_BY_ASPECT);
+  const [isAutoFreeSpinActive, setIsAutoFreeSpinActive] = useState(false);
   const [isAutoPlayActive, setIsAutoPlayActive] = useState(false);
   const [isCascadeRunning, setIsCascadeRunning] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
@@ -230,6 +273,7 @@ export function EditorCanvas() {
   const reelCascadeTimerRef = useRef<number | null>(null);
   const reelPlayTimerRef = useRef<number | null>(null);
   const spinSpeedRef = useRef<keyof typeof REEL_PLAY_STEP_MS_BY_SPEED>("normal");
+  const symbolWeightsRef = useRef<number[]>([]);
   const {
     activeModuleId,
     canvasAspectRatio,
@@ -245,13 +289,21 @@ export function EditorCanvas() {
     moduleVisibility,
     pushUndoSnapshot,
     reelSettings,
+    recordEditorRoundHistory,
+    roundHistory,
     scatterSettings,
     scatterFreespins,
+    scatterFreespinIncrements,
     selectedLayerId,
+    selectedRoundHistoryRound,
     spinSpeed,
     symbolWeights,
     wildPayouts,
     wildSettings,
+    addEditorFreeSpins,
+    addEditorWinnings,
+    advanceEditorRound,
+    consumeEditorFreeSpin,
     cycleSpinSpeed,
     setCanvasAspectRatio,
     setCanvasBackground,
@@ -260,8 +312,12 @@ export function EditorCanvas() {
     setJackpotPayout,
     setWildPayout,
     setScatterFreespins,
+    setScatterFreespinIncrement,
     setSelectedLayer,
     setVisibleReelSymbols,
+    decreaseEditorBet,
+    increaseEditorBet,
+    tryDebitEditorBet,
     updateLayerDraft,
   } = useEditorStore();
   const canvasPan = canvasPanByAspect[canvasAspectRatio];
@@ -355,7 +411,7 @@ export function EditorCanvas() {
     return Array.from({ length: maxMatchCount - 2 }, (_, index) => index + 3);
   }, [reelSettings.columns, reelSettings.rows]);
   const scatterAppearanceCounts = useMemo(() => {
-    const maxAppearanceCount = Math.max(2, reelSettings.columns, reelSettings.rows);
+    const maxAppearanceCount = Math.min(5, Math.max(2, reelSettings.columns, reelSettings.rows));
     return Array.from({ length: maxAppearanceCount - 1 }, (_, index) => index + 2);
   }, [reelSettings.columns, reelSettings.rows]);
   const reelSlotCount = reelSettings.columns * reelSettings.rows;
@@ -431,38 +487,87 @@ export function EditorCanvas() {
       })),
     [cardGroupSettings.groups],
   );
-  const linePayouts = useMemo(
-    () => ({
+  const linePayouts = useMemo(() => {
+    const payouts = {
       ...combinationPayouts,
       ...wildPayouts,
-    }),
-    [combinationPayouts, wildPayouts],
-  );
-  const winningCombinationCount = useMemo(
-    () =>
-      [...cardGroupCombinationItems, ...normalCombinationItems].reduce((total) => {
-        return (
-          total +
-          combinationMatchCounts.filter(
-            (matchCount) =>
-              countLineTracePossibilities({
-                columns: reelSettings.columns,
-                matchCount,
-                rows: reelSettings.rows,
-                settings: lineTraceSettings,
-              }) > 0,
-          ).length
-        );
-      }, 0),
-    [
-      cardGroupCombinationItems,
-      combinationMatchCounts,
-      lineTraceSettings,
-      normalCombinationItems,
-      reelSettings.columns,
-      reelSettings.rows,
-    ],
-  );
+      ...jackpotPayouts,
+    };
+
+    for (const { symbolIndex } of reelCardCatalogItems) {
+      const defaultMultiplier =
+        jackpotSettings.enabled && jackpotSettings.jackpotSymbols.includes(symbolIndex)
+          ? DEFAULT_JACKPOT_PAYOUT_MULTIPLIER
+          : wildSettings.enabled && wildSettings.wildSymbols.includes(symbolIndex)
+            ? DEFAULT_WILD_PAYOUT_MULTIPLIER
+            : DEFAULT_NORMAL_PAYOUT_MULTIPLIER;
+      payouts[symbolIndex] = Object.fromEntries(
+        combinationMatchCounts.map((matchCount) => [
+          matchCount,
+          payouts[symbolIndex]?.[matchCount] ?? defaultMultiplier,
+        ]),
+      );
+    }
+
+    for (const { payoutSymbol } of cardGroupCombinationItems) {
+      payouts[payoutSymbol] = Object.fromEntries(
+        combinationMatchCounts.map((matchCount) => [
+          matchCount,
+          payouts[payoutSymbol]?.[matchCount] ?? DEFAULT_NORMAL_PAYOUT_MULTIPLIER,
+        ]),
+      );
+    }
+
+    return payouts;
+  }, [
+    cardGroupCombinationItems,
+    combinationMatchCounts,
+    combinationPayouts,
+    jackpotPayouts,
+    jackpotSettings.enabled,
+    jackpotSettings.jackpotSymbols,
+    reelCardCatalogItems,
+    wildPayouts,
+    wildSettings.enabled,
+    wildSettings.wildSymbols,
+  ]);
+  const winningCombinationCount = useMemo(() => {
+    const validLineMatchCount = combinationMatchCounts.filter(
+      (matchCount) =>
+        countLineTracePossibilities({
+          columns: reelSettings.columns,
+          matchCount,
+          rows: reelSettings.rows,
+          settings: lineTraceSettings,
+        }) > 0,
+    ).length;
+    const lineCombinationCount =
+      (cardGroupCombinationItems.length + normalCombinationItems.length) * validLineMatchCount;
+    const wildCombinationCount = wildCombinationItems.length * combinationMatchCounts.length;
+    const scatterCombinationCount =
+      scatterCombinationItems.length *
+      (scatterAppearanceCounts.length + (scatterSettings.readMode === "individual" ? 1 : 0));
+    const jackpotCombinationCount = jackpotCombinationItems.length * combinationMatchCounts.length;
+
+    return (
+      lineCombinationCount +
+      wildCombinationCount +
+      scatterCombinationCount +
+      jackpotCombinationCount
+    );
+  }, [
+    cardGroupCombinationItems.length,
+    combinationMatchCounts,
+    jackpotCombinationItems.length,
+    lineTraceSettings,
+    normalCombinationItems.length,
+    reelSettings.columns,
+    reelSettings.rows,
+    scatterAppearanceCounts.length,
+    scatterCombinationItems.length,
+    scatterSettings.readMode,
+    wildCombinationItems.length,
+  ]);
   const reelStructureSignature = useMemo(
     () =>
       [
@@ -473,7 +578,6 @@ export function EditorCanvas() {
         reelSettings.rows,
         reelSettings.scale,
         reelSettings.slotFrameEnabled,
-        ...symbolWeights,
         ...visibleReelLayers.map(
           (layer) => `${layer.id}:${layer.x}:${layer.y}:${layer.size}:${layer.symbolIndex ?? ""}`,
         ),
@@ -486,17 +590,23 @@ export function EditorCanvas() {
       reelSettings.rows,
       reelSettings.scale,
       reelSettings.slotFrameEnabled,
-      symbolWeights,
       visibleReelLayers,
     ],
   );
-  const reelLineWins = useMemo(() => {
+  const visibleReelMotionSymbols = useMemo(() => {
     if (!reelPlay) {
       return [];
     }
 
     const finalReelPlayStep = Math.max(...reelPlay.stopSchedule);
     if (reelPlay.currentStep < finalReelPlayStep) {
+      return [];
+    }
+
+    return getVisibleReelMotionSymbols(reelPlay.window, reelSettings.rows);
+  }, [reelPlay, reelSettings.rows]);
+  const reelLineWins = useMemo(() => {
+    if (visibleReelMotionSymbols.length === 0) {
       return [];
     }
 
@@ -510,7 +620,7 @@ export function EditorCanvas() {
           : [],
       settings: lineTraceSettings,
       symbolGroups: cardGroupSettings.groups,
-      symbols: getVisibleReelMotionSymbols(reelPlay.window, reelSettings.rows),
+      symbols: visibleReelMotionSymbols,
       wildBridgeBlockedSymbols,
       wildLineRule: wildSettings.lineRule,
       wildSymbols: wildSettings.enabled ? wildSettings.wildSymbols : [],
@@ -520,16 +630,122 @@ export function EditorCanvas() {
     linePayouts,
     lineTraceSettings,
     cardGroupSettings.groups,
-    reelPlay,
     reelSettings.columns,
     reelSettings.rows,
     scatterSettings.enabled,
     scatterSettings.readMode,
     scatterSettings.scatterSymbols,
+    visibleReelMotionSymbols,
     wildSettings.enabled,
     wildSettings.lineRule,
     wildSettings.wildSymbols,
   ]);
+  const scatterHits = useMemo<EditorScatterHit[]>(() => {
+    if (
+      !scatterSettings.enabled ||
+      scatterSettings.readMode !== "individual" ||
+      visibleReelMotionSymbols.length === 0
+    ) {
+      return [];
+    }
+
+    return scatterSettings.scatterSymbols
+      .map((symbol) => {
+        const cells = visibleReelMotionSymbols.flatMap((visibleSymbol, index) =>
+          visibleSymbol === symbol
+            ? [
+                {
+                  column: (index % reelSettings.columns) + 1,
+                  row: Math.floor(index / reelSettings.columns) + 1,
+                },
+              ]
+            : [],
+        );
+        const freespinAward = getScatterFreespinAward({
+          appearanceCount: cells.length,
+          freespinIncrement:
+            scatterFreespinIncrements[symbol] ?? DEFAULT_SCATTER_FREESPIN_INCREMENT,
+          freespins: scatterFreespins[symbol],
+        });
+
+        return freespinAward > 0
+          ? {
+              cells,
+              count: cells.length,
+              symbol,
+            }
+          : null;
+      })
+      .filter((hit): hit is EditorScatterHit => hit !== null);
+  }, [
+    reelSettings.columns,
+    scatterFreespinIncrements,
+    scatterFreespins,
+    scatterSettings.enabled,
+    scatterSettings.readMode,
+    scatterSettings.scatterSymbols,
+    visibleReelMotionSymbols,
+  ]);
+  const getScatterFreespinAwardForSymbols = (symbols: number[]) => {
+    if (
+      !scatterSettings.enabled ||
+      scatterSettings.readMode !== "individual" ||
+      symbols.length === 0
+    ) {
+      return 0;
+    }
+
+    return scatterSettings.scatterSymbols.reduce((total, symbol) => {
+      const appearanceCount = symbols.filter((visibleSymbol) => visibleSymbol === symbol).length;
+      return (
+        total +
+        getScatterFreespinAward({
+          appearanceCount,
+          freespinIncrement:
+            scatterFreespinIncrements[symbol] ?? DEFAULT_SCATTER_FREESPIN_INCREMENT,
+          freespins: scatterFreespins[symbol],
+        })
+      );
+    }, 0);
+  };
+  const getScatterHitsForSymbols = (symbols: number[]) => {
+    if (
+      !scatterSettings.enabled ||
+      scatterSettings.readMode !== "individual" ||
+      symbols.length === 0
+    ) {
+      return [];
+    }
+
+    return scatterSettings.scatterSymbols
+      .map((symbol) => {
+        const cells = symbols.flatMap((visibleSymbol, index) =>
+          visibleSymbol === symbol
+            ? [
+                {
+                  column: (index % reelSettings.columns) + 1,
+                  row: Math.floor(index / reelSettings.columns) + 1,
+                },
+              ]
+            : [],
+        );
+        const freespinAward = getScatterFreespinAward({
+          appearanceCount: cells.length,
+          freespinIncrement:
+            scatterFreespinIncrements[symbol] ?? DEFAULT_SCATTER_FREESPIN_INCREMENT,
+          freespins: scatterFreespins[symbol],
+        });
+
+        return freespinAward > 0
+          ? {
+              cells,
+              count: cells.length,
+              symbol,
+            }
+          : null;
+      })
+      .filter((hit): hit is EditorScatterHit => hit !== null);
+  };
 
   useEffect(
     () => () => {
@@ -549,6 +765,25 @@ export function EditorCanvas() {
   useEffect(() => {
     spinSpeedRef.current = spinSpeed;
   }, [spinSpeed]);
+
+  useEffect(() => {
+    symbolWeightsRef.current = symbolWeights;
+  }, [symbolWeights]);
+
+  useEffect(() => {
+    onTraceSummaryChange?.({
+      columns: reelSettings.columns,
+      scatterHits,
+      symbols: visibleReelMotionSymbols,
+      wins: reelLineWins,
+    });
+  }, [
+    onTraceSummaryChange,
+    reelLineWins,
+    reelSettings.columns,
+    scatterHits,
+    visibleReelMotionSymbols,
+  ]);
 
   useEffect(() => {
     void reelStructureSignature;
@@ -700,6 +935,7 @@ export function EditorCanvas() {
       window.clearTimeout(autoPlayTimerRef.current);
       autoPlayTimerRef.current = null;
     }
+    setIsAutoFreeSpinActive(false);
   };
 
   const startAutoPlay = () => {
@@ -712,7 +948,13 @@ export function EditorCanvas() {
     startReelPlay();
   };
 
-  const startReelPlay = (initialVisibleSymbols?: number[]) => {
+  const startReelPlay = ({
+    initialVisibleSymbols,
+    isFreeSpin = false,
+  }: {
+    initialVisibleSymbols?: number[];
+    isFreeSpin?: boolean;
+  } = {}) => {
     if (visibleReelLayers.length === 0 || reelSettings.cardCount <= 0) {
       return;
     }
@@ -733,6 +975,14 @@ export function EditorCanvas() {
     if (!frame) {
       return;
     }
+    const balanceBeforeSpin = useEditorStore.getState().editorBalance;
+    const payoutBaseBet = useEditorStore.getState().editorBet;
+    const wager = isFreeSpin ? 0 : payoutBaseBet;
+    if (!isFreeSpin && !tryDebitEditorBet()) {
+      stopAutoPlay();
+      return;
+    }
+    advanceEditorRound();
 
     let stepCount = 0;
     const normalStopSchedule = createReelStopSchedule({
@@ -749,24 +999,38 @@ export function EditorCanvas() {
       columns: reelSettings.columns,
       rows: reelSettings.rows,
       symbolCount: reelSettings.cardCount,
-      symbolWeights,
+      symbolWeights: symbolWeightsRef.current,
       visibleSymbols:
         initialVisibleSymbols ?? visibleReelLayers.map((layer) => layer.symbolIndex ?? 1),
     });
 
     const scheduleNextAutoPlay = (nextVisibleSymbols: number[]) => {
-      if (!autoPlayActiveRef.current) {
+      const hasAutoFreeSpins = () =>
+        scatterSettings.claimMode === "auto" && useEditorStore.getState().editorFreeSpins > 0;
+
+      if (!autoPlayActiveRef.current && !hasAutoFreeSpins()) {
+        setIsAutoFreeSpinActive(false);
         setIsAutoPlayActive(false);
         return;
       }
 
+      setIsAutoFreeSpinActive(hasAutoFreeSpins());
+      setIsAutoPlayActive(autoPlayActiveRef.current);
       autoPlayTimerRef.current = window.setTimeout(() => {
         autoPlayTimerRef.current = null;
-        if (!autoPlayActiveRef.current) {
+        if (!autoPlayActiveRef.current && !hasAutoFreeSpins()) {
+          setIsAutoFreeSpinActive(false);
           setIsAutoPlayActive(false);
           return;
         }
-        startReelPlay(nextVisibleSymbols);
+        const shouldUseFreeSpin = hasAutoFreeSpins();
+        if (shouldUseFreeSpin) {
+          setIsAutoFreeSpinActive(true);
+          consumeEditorFreeSpin();
+        } else {
+          setIsAutoFreeSpinActive(false);
+        }
+        startReelPlay({ initialVisibleSymbols: nextVisibleSymbols, isFreeSpin: shouldUseFreeSpin });
       }, AUTOPLAY_NEXT_SPIN_MS);
     };
 
@@ -787,7 +1051,7 @@ export function EditorCanvas() {
       motionWindow = advanceReelMotionWindow(motionWindow, {
         currentStep: stepCount,
         symbolCount: reelSettings.cardCount,
-        symbolWeights,
+        symbolWeights: symbolWeightsRef.current,
         stopSchedule,
       });
       stepCount += 1;
@@ -808,7 +1072,7 @@ export function EditorCanvas() {
           settings: lineTraceSettings,
           symbolGroups: cardGroupSettings.groups,
           symbolCount: reelSettings.cardCount,
-          symbolWeights,
+          symbolWeights: symbolWeightsRef.current,
           symbols: visibleSymbols,
           validationMode: lineValidationMode,
           wildBridgeBlockedSymbols,
@@ -818,6 +1082,50 @@ export function EditorCanvas() {
         setVisibleReelSymbols(
           lineValidationMode === "cascade" ? cascadeResult.finalSymbols : visibleSymbols,
         );
+        const scatterFreespinAward = getScatterFreespinAwardForSymbols(visibleSymbols);
+        if (scatterFreespinAward > 0) {
+          addEditorFreeSpins(scatterFreespinAward);
+        }
+        const recordRoundHistoryForSymbols = (historySymbols: number[]) => {
+          const historyWins = detectLineWins({
+            columns: reelSettings.columns,
+            linePayouts,
+            rows: reelSettings.rows,
+            scatterSymbols:
+              scatterSettings.enabled && scatterSettings.readMode === "individual"
+                ? scatterSettings.scatterSymbols
+                : [],
+            settings: lineTraceSettings,
+            symbolGroups: cardGroupSettings.groups,
+            symbols: historySymbols,
+            wildBridgeBlockedSymbols,
+            wildLineRule: wildSettings.lineRule,
+            wildSymbols: wildSettings.enabled ? wildSettings.wildSymbols : [],
+          });
+          const payout = historyWins.reduce(
+            (total, win) =>
+              total + payoutBaseBet * (linePayouts[win.symbol]?.[win.cells.length] ?? 1),
+            0,
+          );
+          if (payout > 0) {
+            addEditorWinnings(payout);
+          }
+          const balanceAfter = useEditorStore.getState().editorBalance;
+          recordEditorRoundHistory({
+            balanceAfter,
+            balanceBefore: balanceBeforeSpin,
+            columns: reelSettings.columns,
+            netBalanceChange: balanceAfter - balanceBeforeSpin,
+            payout,
+            round: useEditorStore.getState().editorRound,
+            rows: reelSettings.rows,
+            scatterHits: getScatterHitsForSymbols(historySymbols),
+            spinType: isFreeSpin ? "free-spin" : "paid",
+            symbols: historySymbols,
+            wager,
+            wins: historyWins,
+          });
+        };
         setReelPlay({
           currentStep: finalStopStep,
           frame,
@@ -833,6 +1141,7 @@ export function EditorCanvas() {
             if (!cascadeStep) {
               reelCascadeTimerRef.current = null;
               setIsCascadeRunning(false);
+              recordRoundHistoryForSymbols(cascadeResult.finalSymbols);
               scheduleNextAutoPlay(cascadeResult.finalSymbols);
               return;
             }
@@ -841,7 +1150,7 @@ export function EditorCanvas() {
               columns: reelSettings.columns,
               rows: reelSettings.rows,
               symbolCount: reelSettings.cardCount,
-              symbolWeights,
+              symbolWeights: symbolWeightsRef.current,
               visibleSymbols: cascadeStep.symbols,
             });
             skipNextReelSignatureClearRef.current = true;
@@ -875,6 +1184,7 @@ export function EditorCanvas() {
             CASCADE_TRACE_PAUSE_MS,
           );
         } else {
+          recordRoundHistoryForSymbols(visibleSymbols);
           scheduleNextAutoPlay(
             lineValidationMode === "cascade" ? cascadeResult.finalSymbols : visibleSymbols,
           );
@@ -996,11 +1306,16 @@ export function EditorCanvas() {
     if (!reelPlay || reelLineWins.length === 0) {
       return null;
     }
+    const visibleLineWins =
+      selectedTraceIndex === null
+        ? reelLineWins
+        : reelLineWins.slice(selectedTraceIndex, selectedTraceIndex + 1);
 
     return (
       <svg
         className="slot-editor__win-traces"
         aria-hidden="true"
+        data-selected-trace={selectedTraceIndex === null ? "false" : "true"}
         data-win-traces="true"
         style={{
           height: `${reelPlay.frame.height}px`,
@@ -1010,25 +1325,197 @@ export function EditorCanvas() {
         }}
         viewBox={`0 0 ${reelPlay.frame.width} ${reelPlay.frame.height}`}
       >
-        {reelLineWins.map((win, index) => (
-          <polyline
-            data-win-trace={index + 1}
-            data-win-trace-direction={win.direction}
-            data-win-trace-symbol={win.symbol}
-            // biome-ignore lint/suspicious/noArrayIndexKey: win traces are transient detection results.
-            key={`${win.direction}-${win.symbol}-${index}`}
-            points={win.cells
-              .map((cell) =>
-                [
-                  (cell.column - 1) * reelPlay.frame.stepX + reelPlay.frame.visualCardWidth / 2,
-                  (cell.row - 1) * reelPlay.frame.stepY + reelPlay.frame.visualCardHeight / 2,
-                ].join(","),
-              )
-              .join(" ")}
-            style={{ stroke: win.color }}
-          />
-        ))}
+        {visibleLineWins.map((win) => {
+          const traceIndex = reelLineWins.indexOf(win);
+          return (
+            <polyline
+              data-win-trace={traceIndex + 1}
+              data-win-trace-direction={win.direction}
+              data-win-trace-symbol={win.symbol}
+              data-selected-trace={selectedTraceIndex === null ? "false" : "true"}
+              key={`${win.direction}-${win.symbol}-${traceIndex}`}
+              points={win.cells
+                .map((cell) =>
+                  [
+                    (cell.column - 1) * reelPlay.frame.stepX + reelPlay.frame.visualCardWidth / 2,
+                    (cell.row - 1) * reelPlay.frame.stepY + reelPlay.frame.visualCardHeight / 2,
+                  ].join(","),
+                )
+                .join(" ")}
+              style={{ stroke: win.color }}
+            />
+          );
+        })}
       </svg>
+    );
+  };
+
+  const renderScatterGlows = () => {
+    if (!reelPlay || scatterHits.length === 0) {
+      return null;
+    }
+
+    const totalScatterCells = scatterHits.reduce((total, hit) => total + hit.cells.length, 0);
+
+    return (
+      <svg
+        className="slot-editor__scatter-glows"
+        aria-hidden="true"
+        data-scatter-count={totalScatterCells}
+        data-scatter-glows="true"
+        style={{
+          height: `${reelPlay.frame.height}px`,
+          left: `${reelPlay.frame.left}px`,
+          top: `${reelPlay.frame.top}px`,
+          width: `${reelPlay.frame.width}px`,
+        }}
+        viewBox={`0 0 ${reelPlay.frame.width} ${reelPlay.frame.height}`}
+      >
+        {scatterHits.flatMap((hit) =>
+          hit.cells.map((cell) => (
+            <rect
+              className="slot-editor__scatter-glow-cell"
+              data-scatter-glow-cell={`${cell.column}-${cell.row}`}
+              data-scatter-glow-symbol={hit.symbol}
+              height={reelPlay.frame.visualCardHeight}
+              key={`scatter-glow-${hit.symbol}-${cell.column}-${cell.row}`}
+              rx="12"
+              style={{ stroke: "#22c55e" }}
+              width={reelPlay.frame.visualCardWidth}
+              x={(cell.column - 1) * reelPlay.frame.stepX}
+              y={(cell.row - 1) * reelPlay.frame.stepY}
+            />
+          )),
+        )}
+      </svg>
+    );
+  };
+
+  const selectedRoundHistory =
+    roundHistory.find((entry) => entry.round === selectedRoundHistoryRound) ?? roundHistory[0];
+
+  const getHistorySymbolImage = (symbolIndex: number) =>
+    layers.find(
+      (layer) =>
+        layer.canvasAspectRatio === canvasAspectRatio &&
+        layer.elementType === "card" &&
+        layer.moduleId === REELS_CARDS_MODULE_ID &&
+        layer.symbolIndex === symbolIndex,
+    )?.symbolImages?.[0];
+
+  const renderRoundHistoryWorkspace = () => {
+    if (!selectedRoundHistory) {
+      return (
+        <section className="slot-editor__round-history-workspace" aria-label="Historial de Rondas">
+          <div className="slot-editor__rules-empty">
+            <strong>Sin rondas registradas</strong>
+            <span>Al completar un giro, aqui veras el grid y los trazos cobrados.</span>
+          </div>
+        </section>
+      );
+    }
+
+    const historyCellSize = 82;
+    const historyGap = 4;
+    const gridWidth =
+      selectedRoundHistory.columns * historyCellSize +
+      Math.max(0, selectedRoundHistory.columns - 1) * historyGap;
+    const gridHeight =
+      selectedRoundHistory.rows * historyCellSize +
+      Math.max(0, selectedRoundHistory.rows - 1) * historyGap;
+    const visibleHistoryWins =
+      selectedTraceIndex === null
+        ? selectedRoundHistory.wins
+        : selectedRoundHistory.wins.slice(selectedTraceIndex, selectedTraceIndex + 1);
+    const netLabel =
+      selectedRoundHistory.netBalanceChange > 0
+        ? `+${formatEditorMoney(selectedRoundHistory.netBalanceChange)}`
+        : selectedRoundHistory.netBalanceChange < 0
+          ? `-${formatEditorMoney(Math.abs(selectedRoundHistory.netBalanceChange))}`
+          : formatEditorMoney(0);
+
+    return (
+      <section className="slot-editor__round-history-workspace" aria-label="Historial de Rondas">
+        <div
+          className="slot-editor__round-history-stage"
+          data-round-history-grid="true"
+          style={{
+            height: `${gridHeight}px`,
+            gridTemplateColumns: `repeat(${selectedRoundHistory.columns}, ${historyCellSize}px)`,
+            width: `${gridWidth}px`,
+          }}
+        >
+          {selectedRoundHistory.symbols.map((symbolIndex, index) => {
+            const symbolImage = getHistorySymbolImage(symbolIndex);
+            return (
+              <div
+                className="slot-editor__round-history-cell"
+                data-round-history-symbol={symbolIndex}
+                // biome-ignore lint/suspicious/noArrayIndexKey: history cells are a fixed snapshot grid.
+                key={`history-cell-${selectedRoundHistory.round}-${index}`}
+              >
+                {symbolImage ? <img src={symbolImage.src} alt="" /> : <span>{symbolIndex}</span>}
+              </div>
+            );
+          })}
+          {visibleHistoryWins.length > 0 ? (
+            <svg
+              className="slot-editor__win-traces slot-editor__round-history-traces"
+              aria-hidden="true"
+              data-selected-trace={selectedTraceIndex === null ? "false" : "true"}
+              data-win-traces="true"
+              style={{ height: `${gridHeight}px`, width: `${gridWidth}px` }}
+              viewBox={`0 0 ${gridWidth} ${gridHeight}`}
+            >
+              {visibleHistoryWins.map((win) => {
+                const traceIndex = selectedRoundHistory.wins.indexOf(win);
+                return (
+                  <polyline
+                    data-history-win-trace={traceIndex + 1}
+                    data-win-trace={traceIndex + 1}
+                    data-win-trace-direction={win.direction}
+                    data-win-trace-symbol={win.symbol}
+                    key={`history-trace-${selectedRoundHistory.round}-${traceIndex}`}
+                    points={win.cells
+                      .map((cell) =>
+                        [
+                          (cell.column - 1) * (historyCellSize + historyGap) + historyCellSize / 2,
+                          (cell.row - 1) * (historyCellSize + historyGap) + historyCellSize / 2,
+                        ].join(","),
+                      )
+                      .join(" ")}
+                    style={{ stroke: win.color }}
+                  />
+                );
+              })}
+            </svg>
+          ) : null}
+        </div>
+        <div className="slot-editor__round-history-economy" data-round-history-economy="true">
+          <span>
+            <strong>Origen</strong>
+            {selectedRoundHistory.spinType === "free-spin" ? "Freespin" : "Pagada"}
+          </span>
+          <span>
+            <strong>Apuesta</strong>
+            {formatEditorMoney(selectedRoundHistory.wager)}
+          </span>
+          <span>
+            <strong>Ganancia</strong>
+            {formatEditorMoney(selectedRoundHistory.payout)}
+          </span>
+          <span>
+            <strong>Neto</strong>
+            {netLabel}
+          </span>
+          <span>
+            <strong>Balance</strong>
+            {`${formatEditorMoney(selectedRoundHistory.balanceBefore)} -> ${formatEditorMoney(
+              selectedRoundHistory.balanceAfter,
+            )}`}
+          </span>
+        </div>
+      </section>
     );
   };
 
@@ -1147,22 +1634,25 @@ export function EditorCanvas() {
     const isSpinButton = buttonBaseId === "button-spin";
     const isAutoPlayButton = buttonBaseId === "button-autoplay";
     const isArrowButton = buttonBaseId === "button-arrow";
+    const isBetDecreaseButton = buttonBaseId === "button-betDecrease";
+    const isBetIncreaseButton = buttonBaseId === "button-betIncrease";
     const isReelPlayActive = Boolean(reelPlay && reelPlay.currentStep < finalReelPlayStep);
     const isPlayLockedButton =
-      (isReelPlayActive || isCascadeRunning || isAutoPlayActive) &&
+      (isReelPlayActive || isCascadeRunning || isAutoPlayActive || isAutoFreeSpinActive) &&
       PLAY_LOCKED_BUTTON_IDS.has(buttonBaseId) &&
-      !(isSpinButton && isAutoPlayActive);
+      !(isSpinButton && isAutoPlayActive && !isAutoFreeSpinActive);
     const isSpinMotionActive = Boolean(isSpinButton && isReelPlayActive);
     const isSpinSettling = Boolean(
       isSpinButton && reelPlay && reelPlay.currentStep >= finalReelPlayStep,
     );
-    const previewIconSrc = isSpinButton && isAutoPlayActive ? STOP_ICON_SRC : layer.iconSrc;
+    const previewIconSrc =
+      isSpinButton && isAutoPlayActive && !isAutoFreeSpinActive ? STOP_ICON_SRC : layer.iconSrc;
 
     return (
       <EditorButtonPreview
         className={[
           BUTTON_CLASS_BY_ID[buttonBaseId] ?? "",
-          isSpinButton && isAutoPlayActive ? "is-autoplay-stop" : "",
+          isSpinButton && isAutoPlayActive && !isAutoFreeSpinActive ? "is-autoplay-stop" : "",
           isSpinMotionActive ? "is-spinning" : "",
           isSpinSettling ? "is-spin-settling" : "",
           isArrowButton ? `has-speed-${spinSpeed}` : "",
@@ -1205,7 +1695,17 @@ export function EditorCanvas() {
                     event.stopPropagation();
                     cycleSpinSpeed();
                   }
-                : undefined
+                : !isOutsideSurface && isBetDecreaseButton
+                  ? (event) => {
+                      event.stopPropagation();
+                      decreaseEditorBet();
+                    }
+                  : !isOutsideSurface && isBetIncreaseButton
+                    ? (event) => {
+                        event.stopPropagation();
+                        increaseEditorBet();
+                      }
+                    : undefined
         }
         style={layerStyle}
       />
@@ -1233,35 +1733,50 @@ export function EditorCanvas() {
                     </span>
                   </div>
                   <div className="slot-editor__wild-payout-grid">
-                    {combinationMatchCounts.map((matchCount) => (
-                      <label
-                        className="slot-editor__wild-payout-control"
-                        key={`wild-${symbolIndex}-match-${matchCount}`}
-                      >
-                        <span>{`x${matchCount}`}</span>
-                        <span className="slot-editor__special-chance">
-                          {`${getAppearanceManifestChance({
-                            appearanceCount: matchCount,
-                            slotCount: reelSlotCount,
-                            symbolProbability,
-                          }).toFixed(4)}% chance`}
-                        </span>
-                        <input
-                          aria-label={`Wild ${layer.label} x${matchCount}`}
-                          min="0"
-                          step="0.01"
-                          type="number"
-                          value={wildPayouts[symbolIndex]?.[matchCount] ?? 0}
-                          onInput={(event) =>
-                            setWildPayout(
-                              symbolIndex,
-                              matchCount,
-                              Number(event.currentTarget.value),
-                            )
-                          }
-                        />
-                      </label>
-                    ))}
+                    {combinationMatchCounts.map((matchCount) => {
+                      const traceCount = countLineTracePossibilities({
+                        columns: reelSettings.columns,
+                        matchCount,
+                        rows: reelSettings.rows,
+                        settings: lineTraceSettings,
+                      });
+                      const chance = getCombinationManifestChance({
+                        isScatterTraceBlocked: false,
+                        isWild: true,
+                        matchCount,
+                        symbolProbability,
+                        traceCount,
+                        wildProbability: 0,
+                      });
+                      return (
+                        <label
+                          className="slot-editor__wild-payout-control"
+                          key={`wild-${symbolIndex}-match-${matchCount}`}
+                        >
+                          <span>{`x${matchCount}`}</span>
+                          <span className="slot-editor__special-chance">
+                            {`${chance.toFixed(4)}% chance`}
+                          </span>
+                          <input
+                            aria-label={`Wild ${layer.label} x${matchCount}`}
+                            min="0"
+                            step="0.01"
+                            type="number"
+                            value={
+                              wildPayouts[symbolIndex]?.[matchCount] ??
+                              DEFAULT_WILD_PAYOUT_MULTIPLIER
+                            }
+                            onInput={(event) =>
+                              setWildPayout(
+                                symbolIndex,
+                                matchCount,
+                                Number(event.currentTarget.value),
+                              )
+                            }
+                          />
+                        </label>
+                      );
+                    })}
                   </div>
                 </article>
               );
@@ -1276,6 +1791,16 @@ export function EditorCanvas() {
             {scatterCombinationItems.map(({ layer, symbolIndex }) => {
               const thumbnail = layer.symbolImages?.[0];
               const symbolProbability = (symbolWeightPercentages[symbolIndex - 1] ?? 0) / 100;
+              const scatterIncrement =
+                scatterFreespinIncrements[symbolIndex] ?? DEFAULT_SCATTER_FREESPIN_INCREMENT;
+              const maxScatterAppearanceCount = Math.max(
+                2,
+                reelSettings.columns,
+                reelSettings.rows,
+              );
+              const x5Freespins = scatterFreespins[symbolIndex]?.[5] ?? 0;
+              const maxExtraFreespins =
+                x5Freespins + scatterIncrement * Math.max(0, maxScatterAppearanceCount - 5);
               return (
                 <article className="slot-editor__rules-special-card is-scatter" key={layer.id}>
                   <div className="slot-editor__combination-thumb">
@@ -1315,6 +1840,32 @@ export function EditorCanvas() {
                         />
                       </label>
                     ))}
+                    {scatterSettings.readMode === "individual" ? (
+                      <label
+                        className="slot-editor__scatter-freespins-control"
+                        key={`scatter-${symbolIndex}-increment`}
+                      >
+                        <span>+5</span>
+                        <span className="slot-editor__special-chance">
+                          {maxScatterAppearanceCount > 5
+                            ? `x${maxScatterAppearanceCount} = ${maxExtraFreespins}`
+                            : "Suma extra"}
+                        </span>
+                        <input
+                          aria-label={`Incremento Freespins ${layer.label} +5`}
+                          min="0"
+                          step="1"
+                          type="number"
+                          value={scatterIncrement}
+                          onInput={(event) =>
+                            setScatterFreespinIncrement(
+                              symbolIndex,
+                              Number(event.currentTarget.value),
+                            )
+                          }
+                        />
+                      </label>
+                    ) : null}
                   </div>
                 </article>
               );
@@ -1339,35 +1890,50 @@ export function EditorCanvas() {
                     <span>Paga Jackpot cuando cumple sus apariciones.</span>
                   </div>
                   <div className="slot-editor__jackpot-payout-grid">
-                    {combinationMatchCounts.map((matchCount) => (
-                      <label
-                        className="slot-editor__jackpot-payout-control"
-                        key={`jackpot-${symbolIndex}-match-${matchCount}`}
-                      >
-                        <span>{`x${matchCount}`}</span>
-                        <span className="slot-editor__special-chance">
-                          {`${getAppearanceManifestChance({
-                            appearanceCount: matchCount,
-                            slotCount: reelSlotCount,
-                            symbolProbability,
-                          }).toFixed(4)}% chance`}
-                        </span>
-                        <input
-                          aria-label={`Jackpot ${layer.label} x${matchCount}`}
-                          min="0"
-                          step="0.01"
-                          type="number"
-                          value={jackpotPayouts[symbolIndex]?.[matchCount] ?? 0}
-                          onInput={(event) =>
-                            setJackpotPayout(
-                              symbolIndex,
-                              matchCount,
-                              Number(event.currentTarget.value),
-                            )
-                          }
-                        />
-                      </label>
-                    ))}
+                    {combinationMatchCounts.map((matchCount) => {
+                      const traceCount = countLineTracePossibilities({
+                        columns: reelSettings.columns,
+                        matchCount,
+                        rows: reelSettings.rows,
+                        settings: lineTraceSettings,
+                      });
+                      const chance = getCombinationManifestChance({
+                        isScatterTraceBlocked: false,
+                        isWild: false,
+                        matchCount,
+                        symbolProbability,
+                        traceCount,
+                        wildProbability: 0,
+                      });
+                      return (
+                        <label
+                          className="slot-editor__jackpot-payout-control"
+                          key={`jackpot-${symbolIndex}-match-${matchCount}`}
+                        >
+                          <span>{`x${matchCount}`}</span>
+                          <span className="slot-editor__special-chance">
+                            {`${chance.toFixed(4)}% chance`}
+                          </span>
+                          <input
+                            aria-label={`Jackpot ${layer.label} x${matchCount}`}
+                            min="0"
+                            step="0.01"
+                            type="number"
+                            value={
+                              jackpotPayouts[symbolIndex]?.[matchCount] ??
+                              DEFAULT_JACKPOT_PAYOUT_MULTIPLIER
+                            }
+                            onInput={(event) =>
+                              setJackpotPayout(
+                                symbolIndex,
+                                matchCount,
+                                Number(event.currentTarget.value),
+                              )
+                            }
+                          />
+                        </label>
+                      );
+                    })}
                   </div>
                 </article>
               );
@@ -1511,7 +2077,10 @@ export function EditorCanvas() {
                         min="0"
                         step="0.01"
                         type="number"
-                        value={combinationPayouts[symbolIndex]?.[matchCount] ?? 0}
+                        value={
+                          combinationPayouts[symbolIndex]?.[matchCount] ??
+                          DEFAULT_NORMAL_PAYOUT_MULTIPLIER
+                        }
                         onInput={(event) =>
                           setCombinationPayout(
                             symbolIndex,
@@ -1550,6 +2119,8 @@ export function EditorCanvas() {
     >
       {activeModuleId === RULES_COMBINATIONS_MODULE_ID ? (
         renderRulesCombinationsWorkspace()
+      ) : activeModuleId === ROUND_HISTORY_MODULE_ID ? (
+        renderRoundHistoryWorkspace()
       ) : (
         <>
           <div className="slot-editor__canvas-toolbar">
@@ -1615,6 +2186,7 @@ export function EditorCanvas() {
             <div className="slot-editor__phone-clip">
               {visibleLayers.map((layer) => renderLayer(layer, "inside"))}
               {renderReelMotionWindow()}
+              {renderScatterGlows()}
               {renderLineWinTraces()}
               {selectedReelGridFrame ? (
                 <div

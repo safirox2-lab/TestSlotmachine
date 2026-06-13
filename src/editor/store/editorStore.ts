@@ -12,6 +12,7 @@ import {
   EDITOR_BUTTON_OPTIONS,
   EDITOR_DATA_OPTIONS,
   REELS_CARDS_MODULE_ID,
+  ROUND_HISTORY_MODULE_ID,
   RULES_COMBINATIONS_MODULE_ID,
   RULES_WINS_MODULE_ID,
 } from "../config/editorModules.config";
@@ -24,6 +25,7 @@ import type {
   EditorModuleId,
   EditorReelMode,
   EditorReelStopMode,
+  EditorRoundHistoryEntry,
   EditorSpinSpeed,
 } from "../editor.types";
 import type { LineTraceSettingKey, LineTraceSettings, WildLineRule } from "../lineWins";
@@ -32,6 +34,7 @@ import { normalizeSymbolWeights, randomWeightedSymbol } from "../symbolWeights";
 type MoveDirection = "up" | "down";
 type CanvasBackground = "black" | "transparent" | "white";
 type LayerUpdate = Partial<Pick<EditorLayer, "color" | "size" | "visible" | "x" | "y">>;
+type ScatterClaimMode = "auto" | "save";
 type ScatterReadMode = "individual" | "traces";
 type ReelSettingKey = "cardCount" | "columns" | "paddingX" | "paddingY" | "rows" | "scale";
 const CANVAS_SCALE = 1080 / 315;
@@ -57,6 +60,7 @@ interface ReelSettings {
 }
 
 interface ScatterSettings {
+  claimMode: ScatterClaimMode;
   enabled: boolean;
   readMode: ScatterReadMode;
   scatterCount: number;
@@ -83,8 +87,23 @@ interface CardGroupSettings {
 
 type CombinationPayouts = Record<number, Record<number, number>>;
 type ScatterFreespins = Record<number, Record<number, number>>;
+type ScatterFreespinIncrements = Record<number, number>;
 type WildPayouts = Record<number, Record<number, number>>;
 type JackpotPayouts = Record<number, Record<number, number>>;
+
+const DEFAULT_SCATTER_FREESPINS: ScatterFreespins = {
+  1: {
+    2: 1,
+    3: 2,
+    4: 3,
+    5: 4,
+  },
+};
+const DEFAULT_SCATTER_FREESPIN_INCREMENTS: ScatterFreespinIncrements = {
+  1: 2,
+};
+const DEFAULT_EDITOR_BALANCE = 1000;
+const EDITOR_BET_PRESETS = [10, 20, 50, 100, 250, 500, 1000] as const;
 
 type EditorSnapshot = Pick<
   EditorStoreState,
@@ -94,6 +113,12 @@ type EditorSnapshot = Pick<
   | "canvasZoom"
   | "buttonGlowDistance"
   | "dataColor"
+  | "editorBalance"
+  | "editorBet"
+  | "editorFreeSpins"
+  | "editorRound"
+  | "roundHistory"
+  | "selectedRoundHistoryRound"
   | "glowEnabled"
   | "glowColor"
   | "hoverGlowDistance"
@@ -105,6 +130,7 @@ type EditorSnapshot = Pick<
   | "reelSettings"
   | "scatterSettings"
   | "scatterFreespins"
+  | "scatterFreespinIncrements"
   | "combinationPayouts"
   | "wildPayouts"
   | "cardGroupSettings"
@@ -188,6 +214,7 @@ const DEFAULT_REEL_SETTINGS: ReelSettings = {
 const DEFAULT_SYMBOL_WEIGHTS = Array.from({ length: DEFAULT_REEL_SETTINGS.cardCount }, () => 1);
 
 const DEFAULT_SCATTER_SETTINGS: ScatterSettings = {
+  claimMode: "auto",
   enabled: false,
   readMode: "individual",
   scatterCount: 1,
@@ -256,6 +283,12 @@ interface EditorStoreState {
   canvasBackground: CanvasBackground;
   canvasAspectRatio: EditorCanvasAspectRatio;
   canvasZoom: number;
+  editorBalance: number;
+  editorBet: number;
+  editorFreeSpins: number;
+  editorRound: number;
+  roundHistory: EditorRoundHistoryEntry[];
+  selectedRoundHistoryRound: number | null;
   cardGroupSettings: CardGroupSettings;
   combinationPayouts: CombinationPayouts;
   wildPayouts: WildPayouts;
@@ -264,12 +297,21 @@ interface EditorStoreState {
   reelSettings: ReelSettings;
   scatterSettings: ScatterSettings;
   scatterFreespins: ScatterFreespins;
+  scatterFreespinIncrements: ScatterFreespinIncrements;
   spinSpeed: EditorSpinSpeed;
   symbolWeights: number[];
   wildSettings: WildSettings;
   pastSnapshots: EditorSnapshot[];
   setActiveModule: (moduleId: EditorModuleId) => void;
   toggleModuleVisibility: (moduleId: EditorModuleId) => void;
+  addEditorFreeSpins: (freeSpins: number) => void;
+  addEditorWinnings: (winnings: number) => void;
+  advanceEditorRound: () => void;
+  decreaseEditorBet: () => void;
+  increaseEditorBet: () => void;
+  recordEditorRoundHistory: (entry: EditorRoundHistoryEntry) => void;
+  setSelectedRoundHistory: (round: number | null) => void;
+  tryDebitEditorBet: () => boolean;
   addButton: (buttonId: EditorButtonOptionId) => void;
   addData: (dataId: EditorDataOptionId) => void;
   addReel: () => void;
@@ -301,6 +343,7 @@ interface EditorStoreState {
     symbolIndexPosition: number,
     symbolIndex: number,
   ) => void;
+  setScatterClaimMode: (mode: ScatterClaimMode) => void;
   setScatterEnabled: (enabled: boolean) => void;
   setScatterCount: (count: number) => void;
   setScatterReadMode: (mode: ScatterReadMode) => void;
@@ -317,6 +360,7 @@ interface EditorStoreState {
   setWildPayout: (symbolIndex: number, matchCount: number, payout: number) => void;
   setJackpotPayout: (symbolIndex: number, matchCount: number, payout: number) => void;
   setScatterFreespins: (symbolIndex: number, appearanceCount: number, freespins: number) => void;
+  setScatterFreespinIncrement: (symbolIndex: number, increment: number) => void;
   setReelSlotFrameEnabled: (enabled: boolean) => void;
   setReelMode: (mode: EditorReelMode) => void;
   setReelStopMode: (mode: EditorReelStopMode) => void;
@@ -324,6 +368,7 @@ interface EditorStoreState {
   setLayerSymbolImages: (layerId: string, images: EditorLayerImage[]) => void;
   cycleSpinSpeed: () => void;
   setVisibleReelSymbols: (symbols: number[]) => void;
+  consumeEditorFreeSpin: () => boolean;
   undo: () => void;
   getActiveModuleLayers: () => EditorLayer[];
   resetEditor: () => void;
@@ -523,6 +568,7 @@ const initialState = {
     [BUTTONS_DATA_MODULE_ID]: true,
     [REELS_CARDS_MODULE_ID]: true,
     [RULES_WINS_MODULE_ID]: true,
+    [ROUND_HISTORY_MODULE_ID]: true,
     [RULES_COMBINATIONS_MODULE_ID]: true,
   },
   layers: createInitialLayers(),
@@ -537,6 +583,12 @@ const initialState = {
   dataColor: DEFAULT_EDITOR_DATA_COLOR,
   textColor: DEFAULT_EDITOR_TEXT_COLOR,
   hoverColor: DEFAULT_EDITOR_HOVER_COLOR,
+  editorBalance: DEFAULT_EDITOR_BALANCE,
+  editorBet: EDITOR_BET_PRESETS[0],
+  editorFreeSpins: 0,
+  editorRound: 0,
+  roundHistory: [] as EditorRoundHistoryEntry[],
+  selectedRoundHistoryRound: null as number | null,
   cardGroupSettings: {
     ...DEFAULT_CARD_GROUP_SETTINGS,
     groups: DEFAULT_CARD_GROUP_SETTINGS.groups.map((group) => [...group]),
@@ -544,7 +596,8 @@ const initialState = {
   combinationPayouts: {} as CombinationPayouts,
   wildPayouts: {} as WildPayouts,
   jackpotPayouts: {} as JackpotPayouts,
-  scatterFreespins: {} as ScatterFreespins,
+  scatterFreespins: cloneScatterFreespins(DEFAULT_SCATTER_FREESPINS),
+  scatterFreespinIncrements: cloneScatterFreespinIncrements(DEFAULT_SCATTER_FREESPIN_INCREMENTS),
   canvasBackground: "black" as CanvasBackground,
   canvasAspectRatio: "9:16" as EditorCanvasAspectRatio,
   canvasZoom: 0.44,
@@ -593,6 +646,54 @@ function cloneScatterFreespins(freespins: ScatterFreespins): ScatterFreespins {
   );
 }
 
+function cloneScatterFreespinIncrements(
+  increments: ScatterFreespinIncrements,
+): ScatterFreespinIncrements {
+  return { ...increments };
+}
+
+function baseEditorLayerId(layerId: string): string {
+  return layerId.startsWith("landscape-") ? layerId.slice("landscape-".length) : layerId;
+}
+
+function updateFreeSpinsDataLayers(layers: EditorLayer[], freeSpins: number): EditorLayer[] {
+  const textValue = String(Math.max(0, Math.round(Number.isFinite(freeSpins) ? freeSpins : 0)));
+  return layers.map((layer) =>
+    baseEditorLayerId(layer.id) === "data-freeSpins" ? { ...layer, textValue } : layer,
+  );
+}
+
+function formatEditorMoney(amount: number): string {
+  const safeAmount = Math.max(0, Math.round(Number.isFinite(amount) ? amount : 0));
+  return `$${safeAmount.toLocaleString("en-US")}`;
+}
+
+function updateBalanceDataLayers(layers: EditorLayer[], balance: number): EditorLayer[] {
+  const textValue = formatEditorMoney(balance);
+  return layers.map((layer) =>
+    baseEditorLayerId(layer.id) === "data-balance" ? { ...layer, textValue } : layer,
+  );
+}
+
+function updateBetDataLayers(layers: EditorLayer[], bet: number): EditorLayer[] {
+  const textValue = formatEditorMoney(bet);
+  return layers.map((layer) =>
+    baseEditorLayerId(layer.id) === "data-bet" ? { ...layer, textValue } : layer,
+  );
+}
+
+function formatEditorRound(round: number): string {
+  const safeRound = Math.max(1, Math.round(Number.isFinite(round) ? round : 1));
+  return `#${String(safeRound).padStart(6, "0")}`;
+}
+
+function updateRoundDataLayers(layers: EditorLayer[], round: number): EditorLayer[] {
+  const textValue = formatEditorRound(round);
+  return layers.map((layer) =>
+    baseEditorLayerId(layer.id) === "data-roundLabel" ? { ...layer, textValue } : layer,
+  );
+}
+
 function clampPayout(payout: number): number {
   return Math.max(0, Number.isFinite(payout) ? Number(payout) : 0);
 }
@@ -609,6 +710,23 @@ function createSnapshot(state: EditorStoreState): EditorSnapshot {
     canvasZoom: state.canvasZoom,
     buttonGlowDistance: state.buttonGlowDistance,
     dataColor: state.dataColor,
+    editorBalance: state.editorBalance,
+    editorBet: state.editorBet,
+    editorFreeSpins: state.editorFreeSpins,
+    editorRound: state.editorRound,
+    roundHistory: state.roundHistory.map((entry) => ({
+      ...entry,
+      scatterHits: entry.scatterHits.map((hit) => ({
+        ...hit,
+        cells: hit.cells.map((cell) => ({ ...cell })),
+      })),
+      symbols: [...entry.symbols],
+      wins: entry.wins.map((win) => ({
+        ...win,
+        cells: win.cells.map((cell) => ({ ...cell })),
+      })),
+    })),
+    selectedRoundHistoryRound: state.selectedRoundHistoryRound,
     glowEnabled: state.glowEnabled,
     glowColor: state.glowColor,
     hoverGlowDistance: state.hoverGlowDistance,
@@ -621,6 +739,7 @@ function createSnapshot(state: EditorStoreState): EditorSnapshot {
     wildPayouts: cloneCombinationPayouts(state.wildPayouts),
     jackpotPayouts: cloneCombinationPayouts(state.jackpotPayouts),
     scatterFreespins: cloneScatterFreespins(state.scatterFreespins),
+    scatterFreespinIncrements: cloneScatterFreespinIncrements(state.scatterFreespinIncrements),
     layers: state.layers.map((layer) => ({
       ...layer,
       symbolImages: layer.symbolImages?.map((image) => ({ ...image })),
@@ -1048,6 +1167,99 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
         },
       }),
     ),
+  addEditorFreeSpins: (freeSpins) =>
+    set((state) => {
+      const nextFreeSpins =
+        state.editorFreeSpins + Math.max(0, Math.round(Number.isFinite(freeSpins) ? freeSpins : 0));
+      return {
+        editorFreeSpins: nextFreeSpins,
+        layers: updateFreeSpinsDataLayers(state.layers, nextFreeSpins),
+      };
+    }),
+  addEditorWinnings: (winnings) =>
+    set((state) => {
+      const safeWinnings = Math.max(0, Math.round(Number.isFinite(winnings) ? winnings : 0));
+      if (safeWinnings <= 0) {
+        return state;
+      }
+      const nextBalance = state.editorBalance + safeWinnings;
+      return {
+        editorBalance: nextBalance,
+        layers: updateBalanceDataLayers(state.layers, nextBalance),
+      };
+    }),
+  advanceEditorRound: () =>
+    set((state) => {
+      const nextRound = state.editorRound + 1;
+      return {
+        editorRound: nextRound,
+        layers: updateRoundDataLayers(state.layers, nextRound),
+      };
+    }),
+  decreaseEditorBet: () =>
+    set((state) => {
+      const currentIndex = (EDITOR_BET_PRESETS as readonly number[]).indexOf(state.editorBet);
+      const nextIndex = Math.max(0, currentIndex === -1 ? 0 : currentIndex - 1);
+      const nextBet = EDITOR_BET_PRESETS[nextIndex] ?? EDITOR_BET_PRESETS[0];
+      return {
+        editorBet: nextBet,
+        layers: updateBetDataLayers(state.layers, nextBet),
+      };
+    }),
+  increaseEditorBet: () =>
+    set((state) => {
+      const currentIndex = (EDITOR_BET_PRESETS as readonly number[]).indexOf(state.editorBet);
+      const nextIndex = Math.min(
+        EDITOR_BET_PRESETS.length - 1,
+        currentIndex === -1 ? 0 : currentIndex + 1,
+      );
+      const nextBet = EDITOR_BET_PRESETS[nextIndex] ?? EDITOR_BET_PRESETS[0];
+      return {
+        editorBet: nextBet,
+        layers: updateBetDataLayers(state.layers, nextBet),
+      };
+    }),
+  recordEditorRoundHistory: (entry) =>
+    set((state) => {
+      const nextEntry = {
+        ...entry,
+        scatterHits: entry.scatterHits.map((hit) => ({
+          ...hit,
+          cells: hit.cells.map((cell) => ({ ...cell })),
+        })),
+        symbols: [...entry.symbols],
+        wins: entry.wins.map((win) => ({
+          ...win,
+          cells: win.cells.map((cell) => ({ ...cell })),
+        })),
+      };
+      const nextHistory = [
+        nextEntry,
+        ...state.roundHistory.filter((historyEntry) => historyEntry.round !== nextEntry.round),
+      ].slice(0, 100);
+
+      return {
+        roundHistory: nextHistory,
+        selectedRoundHistoryRound: nextEntry.round,
+      };
+    }),
+  setSelectedRoundHistory: (round) =>
+    set((state) => ({
+      selectedRoundHistoryRound:
+        round === null || state.roundHistory.some((entry) => entry.round === round) ? round : null,
+    })),
+  tryDebitEditorBet: () => {
+    const state = get();
+    if (state.editorBalance < state.editorBet) {
+      return false;
+    }
+    const nextBalance = state.editorBalance - state.editorBet;
+    set({
+      editorBalance: nextBalance,
+      layers: updateBalanceDataLayers(state.layers, nextBalance),
+    });
+    return true;
+  },
   addButton: (buttonId) =>
     set((state) => {
       if (buttonId === "defaultButtons") {
@@ -1369,6 +1581,15 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
         },
       });
     }),
+  setScatterClaimMode: (mode) =>
+    set((state) =>
+      withUndoSnapshot(state, {
+        scatterSettings: {
+          ...state.scatterSettings,
+          claimMode: mode,
+        },
+      }),
+    ),
   setScatterEnabled: (enabled) =>
     set((state) => {
       const scatterSymbols = resizeRuleSymbols(
@@ -1879,6 +2100,18 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
         symbols,
       ),
     })),
+  consumeEditorFreeSpin: () => {
+    const state = get();
+    if (state.editorFreeSpins <= 0) {
+      return false;
+    }
+    const nextFreeSpins = state.editorFreeSpins - 1;
+    set({
+      editorFreeSpins: nextFreeSpins,
+      layers: updateFreeSpinsDataLayers(state.layers, nextFreeSpins),
+    });
+    return true;
+  },
   setSymbolWeight: (symbolIndex, weight) =>
     set((state) => {
       const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
@@ -1973,6 +2206,17 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
         },
       });
     }),
+  setScatterFreespinIncrement: (symbolIndex, increment) =>
+    set((state) => {
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+
+      return withUndoSnapshot(state, {
+        scatterFreespinIncrements: {
+          ...state.scatterFreespinIncrements,
+          [safeSymbolIndex]: clampFreespins(increment),
+        },
+      });
+    }),
   undo: () =>
     set((state) => {
       const previousSnapshot = state.pastSnapshots.at(-1);
@@ -2005,6 +2249,9 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
       wildPayouts: cloneCombinationPayouts(initialState.wildPayouts),
       jackpotPayouts: cloneCombinationPayouts(initialState.jackpotPayouts),
       scatterFreespins: cloneScatterFreespins(initialState.scatterFreespins),
+      scatterFreespinIncrements: cloneScatterFreespinIncrements(
+        initialState.scatterFreespinIncrements,
+      ),
       moduleVisibility: { ...initialState.moduleVisibility },
       reelSettings: { ...initialState.reelSettings },
       scatterSettings: {

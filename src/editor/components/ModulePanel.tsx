@@ -5,6 +5,7 @@ import {
   EDITOR_DATA_OPTIONS,
   EDITOR_MODULES,
   REELS_CARDS_MODULE_ID,
+  ROUND_HISTORY_MODULE_ID,
   RULES_COMBINATIONS_MODULE_ID,
   RULES_WINS_MODULE_ID,
 } from "../config/editorModules.config";
@@ -16,6 +17,7 @@ export function ModulePanel() {
     [BUTTONS_DATA_MODULE_ID]: false,
     [REELS_CARDS_MODULE_ID]: false,
     [RULES_WINS_MODULE_ID]: false,
+    [ROUND_HISTORY_MODULE_ID]: false,
     [RULES_COMBINATIONS_MODULE_ID]: false,
   });
   const {
@@ -60,6 +62,7 @@ export function ModulePanel() {
     setReelSetting,
     setReelSlotFrameEnabled,
     setReelStopMode,
+    setScatterClaimMode,
     setScatterCount,
     setScatterEnabled,
     setScatterReadMode,
@@ -630,32 +633,6 @@ export function ModulePanel() {
       </details>
       <details>
         <summary>
-          <span>Lectura de Scatter</span>
-          <span className="slot-editor__submenu-chevron" aria-hidden="true" />
-        </summary>
-        <div className="slot-editor__option-list slot-editor__reel-options">
-          <fieldset className="slot-editor__segmented-control" aria-label="Lectura de Scatter">
-            <button
-              type="button"
-              aria-label="Scatter con valor individual"
-              aria-pressed={scatterSettings.readMode === "individual"}
-              onClick={() => setScatterReadMode("individual")}
-            >
-              Valor Individual
-            </button>
-            <button
-              type="button"
-              aria-label="Scatter cuenta para trazados"
-              aria-pressed={scatterSettings.readMode === "traces"}
-              onClick={() => setScatterReadMode("traces")}
-            >
-              Cuenta trazados
-            </button>
-          </fieldset>
-        </div>
-      </details>
-      <details>
-        <summary>
           <span>Validacion de Trazados</span>
           <span className="slot-editor__submenu-chevron" aria-hidden="true" />
         </summary>
@@ -711,6 +688,50 @@ export function ModulePanel() {
               }
             />
           </label>
+        </div>
+      </details>
+      <details>
+        <summary>
+          <span>Regla de Scatters</span>
+          <span className="slot-editor__submenu-chevron" aria-hidden="true" />
+        </summary>
+        <div className="slot-editor__option-list slot-editor__reel-options">
+          <fieldset className="slot-editor__segmented-control" aria-label="Lectura de Scatter">
+            <button
+              type="button"
+              aria-label="Scatter con valor individual"
+              aria-pressed={scatterSettings.readMode === "individual"}
+              onClick={() => setScatterReadMode("individual")}
+            >
+              Valor Individual
+            </button>
+            <button
+              type="button"
+              aria-label="Scatter cuenta para trazados"
+              aria-pressed={scatterSettings.readMode === "traces"}
+              onClick={() => setScatterReadMode("traces")}
+            >
+              Cuenta trazados
+            </button>
+          </fieldset>
+          <fieldset className="slot-editor__segmented-control" aria-label="Regla de Scatters">
+            <button
+              type="button"
+              aria-label="Canjear freespins automaticamente"
+              aria-pressed={scatterSettings.claimMode === "auto"}
+              onClick={() => setScatterClaimMode("auto")}
+            >
+              Canjear Automatico
+            </button>
+            <button
+              type="button"
+              aria-label="Guardar freespins de scatter"
+              aria-pressed={scatterSettings.claimMode === "save"}
+              onClick={() => setScatterClaimMode("save")}
+            >
+              Guardar Freespins
+            </button>
+          </fieldset>
         </div>
       </details>
       <details>
@@ -854,7 +875,9 @@ export function ModulePanel() {
                   ? renderReelsCardsActions()
                   : module.id === RULES_WINS_MODULE_ID
                     ? renderRulesWinsActions()
-                    : renderRulesCombinationsActions()}
+                    : module.id === RULES_COMBINATIONS_MODULE_ID
+                      ? renderRulesCombinationsActions()
+                      : null}
             </div>
           </section>
         );

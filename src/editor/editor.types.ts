@@ -1,4 +1,11 @@
-export type EditorModuleId = "buttons-data" | "reels-cards" | "rules-wins" | "rules-combinations";
+import type { LineWin } from "./lineWins";
+
+export type EditorModuleId =
+  | "buttons-data"
+  | "reels-cards"
+  | "rules-wins"
+  | "round-history"
+  | "rules-combinations";
 
 export type EditorElementType = "button" | "menu" | "data" | "card";
 
@@ -73,4 +80,28 @@ export interface EditorLayer {
 export interface EditorLayerImage {
   name: string;
   src: string;
+}
+
+export interface EditorTraceSummary {
+  columns: number;
+  scatterHits: EditorScatterHit[];
+  symbols: number[];
+  wins: LineWin[];
+}
+
+export interface EditorScatterHit {
+  cells: Array<{ column: number; row: number }>;
+  count: number;
+  symbol: number;
+}
+
+export interface EditorRoundHistoryEntry extends EditorTraceSummary {
+  balanceAfter: number;
+  balanceBefore: number;
+  netBalanceChange: number;
+  payout: number;
+  round: number;
+  rows: number;
+  spinType: "free-spin" | "paid";
+  wager: number;
 }
