@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { LineValidationMode } from "../cascadeWins";
 import {
   BUTTONS_DATA_MODULE_ID,
   DEFAULT_EDITOR_ACCENT,
@@ -11,6 +12,8 @@ import {
   EDITOR_BUTTON_OPTIONS,
   EDITOR_DATA_OPTIONS,
   REELS_CARDS_MODULE_ID,
+  RULES_COMBINATIONS_MODULE_ID,
+  RULES_WINS_MODULE_ID,
 } from "../config/editorModules.config";
 import type {
   EditorButtonOptionId,
@@ -23,10 +26,13 @@ import type {
   EditorReelStopMode,
   EditorSpinSpeed,
 } from "../editor.types";
+import type { LineTraceSettingKey, LineTraceSettings, WildLineRule } from "../lineWins";
+import { normalizeSymbolWeights, randomWeightedSymbol } from "../symbolWeights";
 
 type MoveDirection = "up" | "down";
 type CanvasBackground = "black" | "transparent" | "white";
 type LayerUpdate = Partial<Pick<EditorLayer, "color" | "size" | "visible" | "x" | "y">>;
+type ScatterReadMode = "individual" | "traces";
 type ReelSettingKey = "cardCount" | "columns" | "paddingX" | "paddingY" | "rows" | "scale";
 const CANVAS_SCALE = 1080 / 315;
 
@@ -46,8 +52,40 @@ interface ReelSettings {
   paddingY: number;
   rows: number;
   scale: number;
+  slotFrameEnabled: boolean;
   stopMode: EditorReelStopMode;
 }
+
+interface ScatterSettings {
+  enabled: boolean;
+  readMode: ScatterReadMode;
+  scatterCount: number;
+  scatterSymbols: number[];
+}
+
+interface WildSettings {
+  enabled: boolean;
+  lineRule: WildLineRule;
+  wildCount: number;
+  wildSymbols: number[];
+}
+
+interface JackpotSettings {
+  enabled: boolean;
+  jackpotCount: number;
+  jackpotSymbols: number[];
+}
+
+interface CardGroupSettings {
+  groupCount: number;
+  groups: number[][];
+}
+
+type CombinationPayouts = Record<number, Record<number, number>>;
+type ScatterFreespins = Record<number, Record<number, number>>;
+type WildPayouts = Record<number, Record<number, number>>;
+type JackpotPayouts = Record<number, Record<number, number>>;
+
 type EditorSnapshot = Pick<
   EditorStoreState,
   | "accentColor"
@@ -61,10 +99,21 @@ type EditorSnapshot = Pick<
   | "hoverGlowDistance"
   | "hoverColor"
   | "layers"
+  | "lineTraceSettings"
+  | "lineValidationMode"
   | "moduleVisibility"
   | "reelSettings"
+  | "scatterSettings"
+  | "scatterFreespins"
+  | "combinationPayouts"
+  | "wildPayouts"
+  | "cardGroupSettings"
+  | "jackpotSettings"
+  | "jackpotPayouts"
+  | "symbolWeights"
   | "selectedLayerId"
   | "textColor"
+  | "wildSettings"
 >;
 
 const DEFAULT_BUTTON_LAYOUT: Record<
@@ -133,7 +182,42 @@ const DEFAULT_REEL_SETTINGS: ReelSettings = {
   paddingY: 4,
   rows: 4,
   scale: 1,
-  stopMode: "random-one-by-one",
+  slotFrameEnabled: true,
+  stopMode: "left-to-right",
+};
+const DEFAULT_SYMBOL_WEIGHTS = Array.from({ length: DEFAULT_REEL_SETTINGS.cardCount }, () => 1);
+
+const DEFAULT_SCATTER_SETTINGS: ScatterSettings = {
+  enabled: false,
+  readMode: "individual",
+  scatterCount: 1,
+  scatterSymbols: [1],
+};
+
+const DEFAULT_WILD_SETTINGS: WildSettings = {
+  enabled: false,
+  lineRule: "all",
+  wildCount: 1,
+  wildSymbols: [1],
+};
+
+const DEFAULT_JACKPOT_SETTINGS: JackpotSettings = {
+  enabled: false,
+  jackpotCount: 1,
+  jackpotSymbols: [1],
+};
+
+const DEFAULT_CARD_GROUP_SETTINGS: CardGroupSettings = {
+  groupCount: 0,
+  groups: [],
+};
+
+const DEFAULT_LINE_TRACE_SETTINGS: LineTraceSettings = {
+  diagonal: true,
+  firstReel: false,
+  horizontal: true,
+  vertical: false,
+  zigzag: true,
 };
 
 const REEL_GRID_LAYOUT: Record<
@@ -158,6 +242,8 @@ interface EditorStoreState {
   activeModuleId: EditorModuleId;
   moduleVisibility: Record<EditorModuleId, boolean>;
   layers: EditorLayer[];
+  lineTraceSettings: LineTraceSettings;
+  lineValidationMode: LineValidationMode;
   selectedLayerId: string | null;
   accentColor: string;
   glowColor: string;
@@ -170,8 +256,17 @@ interface EditorStoreState {
   canvasBackground: CanvasBackground;
   canvasAspectRatio: EditorCanvasAspectRatio;
   canvasZoom: number;
+  cardGroupSettings: CardGroupSettings;
+  combinationPayouts: CombinationPayouts;
+  wildPayouts: WildPayouts;
+  jackpotPayouts: JackpotPayouts;
+  jackpotSettings: JackpotSettings;
   reelSettings: ReelSettings;
+  scatterSettings: ScatterSettings;
+  scatterFreespins: ScatterFreespins;
   spinSpeed: EditorSpinSpeed;
+  symbolWeights: number[];
+  wildSettings: WildSettings;
   pastSnapshots: EditorSnapshot[];
   setActiveModule: (moduleId: EditorModuleId) => void;
   toggleModuleVisibility: (moduleId: EditorModuleId) => void;
@@ -194,9 +289,35 @@ interface EditorStoreState {
   setDataColor: (color: string) => void;
   setTextColor: (color: string) => void;
   setHoverColor: (color: string) => void;
+  setLineTraceEnabled: (direction: LineTraceSettingKey, enabled: boolean) => void;
+  setLineValidationMode: (mode: LineValidationMode) => void;
   setCanvasBackground: (background: CanvasBackground) => void;
   setCanvasAspectRatio: (aspectRatio: EditorCanvasAspectRatio) => void;
   setCanvasZoom: (zoom: number) => void;
+  setCardGroupCount: (count: number) => void;
+  setCardGroupSize: (groupIndex: number, size: number) => void;
+  setCardGroupSymbol: (
+    groupIndex: number,
+    symbolIndexPosition: number,
+    symbolIndex: number,
+  ) => void;
+  setScatterEnabled: (enabled: boolean) => void;
+  setScatterCount: (count: number) => void;
+  setScatterReadMode: (mode: ScatterReadMode) => void;
+  setScatterSymbol: (index: number, symbolIndex: number) => void;
+  setWildEnabled: (enabled: boolean) => void;
+  setWildCount: (count: number) => void;
+  setWildLineRule: (rule: WildLineRule) => void;
+  setWildSymbol: (index: number, symbolIndex: number) => void;
+  setJackpotEnabled: (enabled: boolean) => void;
+  setJackpotCount: (count: number) => void;
+  setJackpotSymbol: (index: number, symbolIndex: number) => void;
+  setSymbolWeight: (symbolIndex: number, weight: number) => void;
+  setCombinationPayout: (symbolIndex: number, matchCount: number, payout: number) => void;
+  setWildPayout: (symbolIndex: number, matchCount: number, payout: number) => void;
+  setJackpotPayout: (symbolIndex: number, matchCount: number, payout: number) => void;
+  setScatterFreespins: (symbolIndex: number, appearanceCount: number, freespins: number) => void;
+  setReelSlotFrameEnabled: (enabled: boolean) => void;
   setReelMode: (mode: EditorReelMode) => void;
   setReelStopMode: (mode: EditorReelStopMode) => void;
   setReelSetting: (key: ReelSettingKey, value: number) => void;
@@ -346,6 +467,7 @@ function getReelLayoutMetrics(settings: ReelSettings, aspectRatio: EditorCanvasA
 function createReelLayers(
   settings: ReelSettings,
   aspectRatio: EditorCanvasAspectRatio,
+  symbolWeights: number[] = [],
 ): EditorLayer[] {
   const layout = getReelLayoutMetrics(settings, aspectRatio);
   const gridOrigin = getCenteredReelGridOrigin(settings, aspectRatio);
@@ -359,7 +481,11 @@ function createReelLayers(
     const sequenceIndex = ((layerIndex - 1) % settings.cardCount) + 1;
     const symbolIndex =
       settings.mode === "procedural"
-        ? Math.floor(Math.random() * settings.cardCount) + 1
+        ? randomWeightedSymbol({
+            cardCount: settings.cardCount,
+            random: Math.random,
+            weights: symbolWeights,
+          })
         : sequenceIndex;
     layers.push({
       id: reelCardLayerId(column, row, aspectRatio),
@@ -396,8 +522,12 @@ const initialState = {
   moduleVisibility: {
     [BUTTONS_DATA_MODULE_ID]: true,
     [REELS_CARDS_MODULE_ID]: true,
+    [RULES_WINS_MODULE_ID]: true,
+    [RULES_COMBINATIONS_MODULE_ID]: true,
   },
   layers: createInitialLayers(),
+  lineTraceSettings: { ...DEFAULT_LINE_TRACE_SETTINGS },
+  lineValidationMode: "classic" as LineValidationMode,
   selectedLayerId: "button-spin",
   accentColor: DEFAULT_EDITOR_ACCENT,
   glowColor: DEFAULT_EDITOR_GLOW_COLOR,
@@ -407,11 +537,32 @@ const initialState = {
   dataColor: DEFAULT_EDITOR_DATA_COLOR,
   textColor: DEFAULT_EDITOR_TEXT_COLOR,
   hoverColor: DEFAULT_EDITOR_HOVER_COLOR,
+  cardGroupSettings: {
+    ...DEFAULT_CARD_GROUP_SETTINGS,
+    groups: DEFAULT_CARD_GROUP_SETTINGS.groups.map((group) => [...group]),
+  },
+  combinationPayouts: {} as CombinationPayouts,
+  wildPayouts: {} as WildPayouts,
+  jackpotPayouts: {} as JackpotPayouts,
+  scatterFreespins: {} as ScatterFreespins,
   canvasBackground: "black" as CanvasBackground,
   canvasAspectRatio: "9:16" as EditorCanvasAspectRatio,
   canvasZoom: 0.44,
   reelSettings: { ...DEFAULT_REEL_SETTINGS },
+  scatterSettings: {
+    ...DEFAULT_SCATTER_SETTINGS,
+    scatterSymbols: [...DEFAULT_SCATTER_SETTINGS.scatterSymbols],
+  },
   spinSpeed: "normal" as EditorSpinSpeed,
+  symbolWeights: [...DEFAULT_SYMBOL_WEIGHTS],
+  wildSettings: {
+    ...DEFAULT_WILD_SETTINGS,
+    wildSymbols: [...DEFAULT_WILD_SETTINGS.wildSymbols],
+  },
+  jackpotSettings: {
+    ...DEFAULT_JACKPOT_SETTINGS,
+    jackpotSymbols: [...DEFAULT_JACKPOT_SETTINGS.jackpotSymbols],
+  },
 };
 
 const SPIN_SPEED_SEQUENCE: EditorSpinSpeed[] = ["normal", "fast", "turbo"];
@@ -422,6 +573,32 @@ function clampZoom(zoom: number): number {
 
 function clampGlowDistance(distance: number): number {
   return Math.min(160, Math.max(0, Math.round(Number.isFinite(distance) ? distance : 0)));
+}
+
+function cloneCombinationPayouts(payouts: CombinationPayouts): CombinationPayouts {
+  return Object.fromEntries(
+    Object.entries(payouts).map(([symbolIndex, matchPayouts]) => [
+      symbolIndex,
+      { ...matchPayouts },
+    ]),
+  );
+}
+
+function cloneScatterFreespins(freespins: ScatterFreespins): ScatterFreespins {
+  return Object.fromEntries(
+    Object.entries(freespins).map(([symbolIndex, appearanceFreespins]) => [
+      symbolIndex,
+      { ...appearanceFreespins },
+    ]),
+  );
+}
+
+function clampPayout(payout: number): number {
+  return Math.max(0, Number.isFinite(payout) ? Number(payout) : 0);
+}
+
+function clampFreespins(freespins: number): number {
+  return Math.max(0, Math.round(Number.isFinite(freespins) ? freespins : 0));
 }
 
 function createSnapshot(state: EditorStoreState): EditorSnapshot {
@@ -436,14 +613,184 @@ function createSnapshot(state: EditorStoreState): EditorSnapshot {
     glowColor: state.glowColor,
     hoverGlowDistance: state.hoverGlowDistance,
     hoverColor: state.hoverColor,
+    cardGroupSettings: {
+      ...state.cardGroupSettings,
+      groups: state.cardGroupSettings.groups.map((group) => [...group]),
+    },
+    combinationPayouts: cloneCombinationPayouts(state.combinationPayouts),
+    wildPayouts: cloneCombinationPayouts(state.wildPayouts),
+    jackpotPayouts: cloneCombinationPayouts(state.jackpotPayouts),
+    scatterFreespins: cloneScatterFreespins(state.scatterFreespins),
     layers: state.layers.map((layer) => ({
       ...layer,
       symbolImages: layer.symbolImages?.map((image) => ({ ...image })),
     })),
     moduleVisibility: { ...state.moduleVisibility },
+    lineTraceSettings: { ...state.lineTraceSettings },
+    lineValidationMode: state.lineValidationMode,
     reelSettings: { ...state.reelSettings },
+    scatterSettings: {
+      ...state.scatterSettings,
+      scatterSymbols: [...state.scatterSettings.scatterSymbols],
+    },
+    symbolWeights: [...state.symbolWeights],
     selectedLayerId: state.selectedLayerId,
     textColor: state.textColor,
+    wildSettings: {
+      ...state.wildSettings,
+      wildSymbols: [...state.wildSettings.wildSymbols],
+    },
+    jackpotSettings: {
+      ...state.jackpotSettings,
+      jackpotSymbols: [...state.jackpotSettings.jackpotSymbols],
+    },
+  };
+}
+
+function resizeRuleSymbols(symbols: number[], count: number, cardCount: number): number[] {
+  const safeCardCount = Math.max(1, cardCount);
+  const nextCount = Math.min(
+    safeCardCount,
+    Math.max(1, Math.round(Number.isFinite(count) ? count : 1)),
+  );
+
+  return Array.from({ length: nextCount }, (_, index) =>
+    Math.min(safeCardCount, Math.max(1, symbols[index] ?? index + 1)),
+  );
+}
+
+function resizeCardGroups(groups: number[][], count: number, cardCount: number): number[][] {
+  const safeCardCount = Math.max(1, cardCount);
+  const safeCount = Math.min(
+    safeCardCount,
+    Math.max(0, Math.round(Number.isFinite(count) ? count : 0)),
+  );
+
+  return Array.from({ length: safeCount }, (_, groupIndex) => {
+    const group = groups[groupIndex] ?? [];
+    const groupSize = Math.min(
+      safeCardCount,
+      Math.max(1, Math.round(Number.isFinite(group.length) ? group.length : 3) || 3),
+    );
+    return Array.from({ length: groupSize }, (_, symbolIndexPosition) =>
+      clampRuleSymbol(group[symbolIndexPosition] ?? symbolIndexPosition + 1, safeCardCount),
+    ).filter((symbol, index, resizedGroup) => resizedGroup.indexOf(symbol) === index);
+  });
+}
+
+function getSpecialRuleSymbols(
+  state: Pick<EditorStoreState, "jackpotSettings" | "scatterSettings" | "wildSettings">,
+): number[] {
+  return [
+    ...(state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : []),
+    ...(state.wildSettings.enabled ? state.wildSettings.wildSymbols : []),
+    ...(state.jackpotSettings.enabled ? state.jackpotSettings.jackpotSymbols : []),
+  ];
+}
+
+function resolveCardGroups({
+  cardCount,
+  groups,
+  reservedSymbols,
+}: {
+  cardCount: number;
+  groups: number[][];
+  reservedSymbols: number[];
+}): number[][] {
+  const safeCardCount = Math.max(1, cardCount);
+  const assignedSymbols = new Set(
+    reservedSymbols.map((symbol) => clampRuleSymbol(symbol, safeCardCount)),
+  );
+
+  return groups.map((group) => {
+    const resolvedGroup: number[] = [];
+    for (const symbol of group) {
+      const resolvedSymbol = getAvailableRuleSymbol(
+        safeCardCount,
+        new Set([...assignedSymbols, ...resolvedGroup]),
+        symbol,
+      );
+      resolvedGroup.push(resolvedSymbol);
+      assignedSymbols.add(resolvedSymbol);
+    }
+    return resolvedGroup;
+  });
+}
+
+function clampRuleSymbol(symbolIndex: number, cardCount: number): number {
+  const safeCardCount = Math.max(1, cardCount);
+  return Math.min(
+    safeCardCount,
+    Math.max(1, Math.round(Number.isFinite(symbolIndex) ? symbolIndex : 1)),
+  );
+}
+
+function getAvailableRuleSymbol(
+  cardCount: number,
+  reservedSymbols: Set<number>,
+  preferredSymbol?: number,
+): number {
+  const safeCardCount = Math.max(1, cardCount);
+  if (preferredSymbol !== undefined) {
+    const safePreferredSymbol = clampRuleSymbol(preferredSymbol, safeCardCount);
+    if (!reservedSymbols.has(safePreferredSymbol)) {
+      return safePreferredSymbol;
+    }
+  }
+
+  for (let symbolIndex = 1; symbolIndex <= safeCardCount; symbolIndex += 1) {
+    if (!reservedSymbols.has(symbolIndex)) {
+      return symbolIndex;
+    }
+  }
+
+  return clampRuleSymbol(preferredSymbol ?? 1, safeCardCount);
+}
+
+function resolveRuleSymbolConflicts(
+  primarySymbols: number[],
+  secondarySymbols: number[],
+  cardCount: number,
+  preferredReplacement?: number,
+): number[] {
+  const primarySymbolSet = new Set(
+    primarySymbols.map((symbol) => clampRuleSymbol(symbol, cardCount)),
+  );
+  const assignedSecondarySymbols = new Set<number>();
+
+  return secondarySymbols.map((symbol) => {
+    const safeSymbol = clampRuleSymbol(symbol, cardCount);
+    if (!primarySymbolSet.has(safeSymbol) && !assignedSecondarySymbols.has(safeSymbol)) {
+      assignedSecondarySymbols.add(safeSymbol);
+      return safeSymbol;
+    }
+
+    const replacement = getAvailableRuleSymbol(
+      cardCount,
+      new Set([...primarySymbolSet, ...assignedSecondarySymbols]),
+      preferredReplacement,
+    );
+    assignedSecondarySymbols.add(replacement);
+    return replacement;
+  });
+}
+
+function resolveJackpotSettings(
+  jackpotSettings: JackpotSettings,
+  reservedSymbols: number[],
+  cardCount: number,
+): JackpotSettings {
+  const maxJackpotCount = Math.max(1, cardCount - new Set(reservedSymbols).size);
+  const jackpotSymbols = resizeRuleSymbols(
+    jackpotSettings.jackpotSymbols,
+    Math.min(jackpotSettings.jackpotCount, maxJackpotCount),
+    cardCount,
+  );
+
+  return {
+    ...jackpotSettings,
+    jackpotCount: jackpotSymbols.length,
+    jackpotSymbols: resolveRuleSymbolConflicts(reservedSymbols, jackpotSymbols, cardCount),
   };
 }
 
@@ -546,6 +893,7 @@ function refreshReelSymbolsForAspectRatio(
   layers: EditorLayer[],
   settings: ReelSettings,
   aspectRatio: EditorCanvasAspectRatio,
+  symbolWeights: number[] = [],
 ): EditorLayer[] {
   return layers.map((layer) => {
     if (
@@ -568,7 +916,11 @@ function refreshReelSymbolsForAspectRatio(
       ...layer,
       symbolIndex:
         settings.mode === "procedural"
-          ? Math.floor(Math.random() * settings.cardCount) + 1
+          ? randomWeightedSymbol({
+              cardCount: settings.cardCount,
+              random: Math.random,
+              weights: symbolWeights,
+            })
           : sequenceIndex,
     };
   });
@@ -578,6 +930,7 @@ function resizeReelLayersForAspectRatio(
   layers: EditorLayer[],
   settings: ReelSettings,
   aspectRatio: EditorCanvasAspectRatio,
+  symbolWeights: number[] = [],
 ): EditorLayer[] {
   const layout = getReelLayoutMetrics(settings, aspectRatio);
   const existingReelLayers = layers.filter(
@@ -605,7 +958,11 @@ function resizeReelLayersForAspectRatio(
     const sequenceIndex = ((layerIndex - 1) % settings.cardCount) + 1;
     const symbolIndex =
       settings.mode === "procedural"
-        ? Math.floor(Math.random() * settings.cardCount) + 1
+        ? randomWeightedSymbol({
+            cardCount: settings.cardCount,
+            random: Math.random,
+            weights: symbolWeights,
+          })
         : sequenceIndex;
 
     nextReelLayers.push({
@@ -736,7 +1093,11 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
     }),
   addReel: () =>
     set((state) => {
-      const newReelLayers = createReelLayers(state.reelSettings, state.canvasAspectRatio);
+      const newReelLayers = createReelLayers(
+        state.reelSettings,
+        state.canvasAspectRatio,
+        state.symbolWeights,
+      );
       const layers = [
         ...state.layers.filter(
           (layer) =>
@@ -811,8 +1172,10 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
             state.layers,
             reelSettings,
             layerToRemove.canvasAspectRatio,
+            state.symbolWeights,
           ),
           reelSettings,
+          symbolWeights: normalizeSymbolWeights(state.symbolWeights, reelSettings.cardCount),
           selectedLayerId: layerId,
         });
       }
@@ -899,6 +1262,17 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
       }),
     ),
   setHoverColor: (color) => set((state) => withUndoSnapshot(state, { hoverColor: color })),
+  setLineTraceEnabled: (direction, enabled) =>
+    set((state) =>
+      withUndoSnapshot(state, {
+        lineTraceSettings: {
+          ...state.lineTraceSettings,
+          [direction]: enabled,
+        },
+      }),
+    ),
+  setLineValidationMode: (mode) =>
+    set((state) => withUndoSnapshot(state, { lineValidationMode: mode })),
   setCanvasBackground: (background) =>
     set((state) => withUndoSnapshot(state, { canvasBackground: background })),
   setCanvasAspectRatio: (aspectRatio) =>
@@ -913,6 +1287,389 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
       return withUndoSnapshot(state, { canvasAspectRatio: aspectRatio, selectedLayerId });
     }),
   setCanvasZoom: (zoom) => set({ canvasZoom: clampZoom(zoom) }),
+  setCardGroupCount: (count) =>
+    set((state) => {
+      const groups = resizeCardGroups(
+        state.cardGroupSettings.groups,
+        count,
+        state.reelSettings.cardCount,
+      ).map((group, index) =>
+        state.cardGroupSettings.groups[index]
+          ? group
+          : resizeRuleSymbols([1, 2, 3], 3, state.reelSettings.cardCount),
+      );
+      const resolvedGroups = resolveCardGroups({
+        cardCount: state.reelSettings.cardCount,
+        groups,
+        reservedSymbols: getSpecialRuleSymbols(state),
+      });
+
+      return withUndoSnapshot(state, {
+        cardGroupSettings: {
+          ...state.cardGroupSettings,
+          groupCount: resolvedGroups.length,
+          groups: resolvedGroups,
+        },
+      });
+    }),
+  setCardGroupSize: (groupIndex, size) =>
+    set((state) => {
+      if (groupIndex < 0 || groupIndex >= state.cardGroupSettings.groups.length) {
+        return state;
+      }
+
+      const safeSize = Math.min(
+        state.reelSettings.cardCount,
+        Math.max(1, Math.round(Number.isFinite(size) ? size : 1)),
+      );
+      const groups = state.cardGroupSettings.groups.map((group, index) =>
+        index === groupIndex
+          ? resizeRuleSymbols(group, safeSize, state.reelSettings.cardCount)
+          : [...group],
+      );
+      const resolvedGroups = resolveCardGroups({
+        cardCount: state.reelSettings.cardCount,
+        groups,
+        reservedSymbols: getSpecialRuleSymbols(state),
+      });
+
+      return withUndoSnapshot(state, {
+        cardGroupSettings: {
+          ...state.cardGroupSettings,
+          groups: resolvedGroups,
+        },
+      });
+    }),
+  setCardGroupSymbol: (groupIndex, symbolIndexPosition, symbolIndex) =>
+    set((state) => {
+      if (groupIndex < 0 || groupIndex >= state.cardGroupSettings.groups.length) {
+        return state;
+      }
+
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const groups = state.cardGroupSettings.groups.map((group, index) =>
+        index === groupIndex
+          ? group.map((currentSymbol, position) =>
+              position === symbolIndexPosition
+                ? safeSymbolIndex
+                : clampRuleSymbol(currentSymbol, state.reelSettings.cardCount),
+            )
+          : [...group],
+      );
+      const resolvedGroups = resolveCardGroups({
+        cardCount: state.reelSettings.cardCount,
+        groups,
+        reservedSymbols: getSpecialRuleSymbols(state),
+      });
+
+      return withUndoSnapshot(state, {
+        cardGroupSettings: {
+          ...state.cardGroupSettings,
+          groups: resolvedGroups,
+        },
+      });
+    }),
+  setScatterEnabled: (enabled) =>
+    set((state) => {
+      const scatterSymbols = resizeRuleSymbols(
+        state.scatterSettings.scatterSymbols,
+        state.scatterSettings.scatterCount,
+        state.reelSettings.cardCount,
+      );
+      return withUndoSnapshot(state, {
+        scatterSettings: {
+          ...state.scatterSettings,
+          enabled,
+          scatterSymbols: resolveRuleSymbolConflicts(
+            state.wildSettings.enabled ? state.wildSettings.wildSymbols : [],
+            scatterSymbols,
+            state.reelSettings.cardCount,
+          ),
+        },
+        jackpotSettings: state.jackpotSettings.enabled
+          ? resolveJackpotSettings(
+              state.jackpotSettings,
+              [
+                ...(enabled ? scatterSymbols : []),
+                ...(state.wildSettings.enabled ? state.wildSettings.wildSymbols : []),
+              ],
+              state.reelSettings.cardCount,
+            )
+          : state.jackpotSettings,
+      });
+    }),
+  setScatterCount: (count) =>
+    set((state) => {
+      const scatterSymbols = resizeRuleSymbols(
+        state.scatterSettings.scatterSymbols,
+        count,
+        state.reelSettings.cardCount,
+      );
+      const nextScatterSymbols = resolveRuleSymbolConflicts(
+        state.wildSettings.enabled ? state.wildSettings.wildSymbols : [],
+        scatterSymbols,
+        state.reelSettings.cardCount,
+      );
+      return withUndoSnapshot(state, {
+        scatterSettings: {
+          ...state.scatterSettings,
+          scatterCount: nextScatterSymbols.length,
+          scatterSymbols: nextScatterSymbols,
+        },
+        jackpotSettings: state.jackpotSettings.enabled
+          ? resolveJackpotSettings(
+              state.jackpotSettings,
+              [
+                ...nextScatterSymbols,
+                ...(state.wildSettings.enabled ? state.wildSettings.wildSymbols : []),
+              ],
+              state.reelSettings.cardCount,
+            )
+          : state.jackpotSettings,
+      });
+    }),
+  setScatterReadMode: (mode) =>
+    set((state) =>
+      withUndoSnapshot(state, {
+        scatterSettings: {
+          ...state.scatterSettings,
+          readMode: mode,
+        },
+      }),
+    ),
+  setScatterSymbol: (index, symbolIndex) =>
+    set((state) => {
+      if (index < 0 || index >= state.scatterSettings.scatterSymbols.length) {
+        return state;
+      }
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const previousSymbolIndex = state.scatterSettings.scatterSymbols[index];
+      const scatterSymbols = state.scatterSettings.scatterSymbols.map(
+        (symbol, symbolIndexPosition) =>
+          symbolIndexPosition === index
+            ? safeSymbolIndex
+            : clampRuleSymbol(symbol, state.reelSettings.cardCount),
+      );
+      const wildSymbols =
+        state.wildSettings.enabled && state.wildSettings.wildSymbols.includes(safeSymbolIndex)
+          ? resolveRuleSymbolConflicts(
+              scatterSymbols,
+              state.wildSettings.wildSymbols,
+              state.reelSettings.cardCount,
+              previousSymbolIndex,
+            )
+          : state.wildSettings.wildSymbols;
+
+      return withUndoSnapshot(state, {
+        scatterSettings: {
+          ...state.scatterSettings,
+          scatterSymbols,
+        },
+        jackpotSettings: state.jackpotSettings.enabled
+          ? resolveJackpotSettings(
+              state.jackpotSettings,
+              [...scatterSymbols, ...(state.wildSettings.enabled ? wildSymbols : [])],
+              state.reelSettings.cardCount,
+            )
+          : state.jackpotSettings,
+        wildSettings: {
+          ...state.wildSettings,
+          wildSymbols,
+        },
+      });
+    }),
+  setWildEnabled: (enabled) =>
+    set((state) => {
+      const wildSymbols = resizeRuleSymbols(
+        state.wildSettings.wildSymbols,
+        state.wildSettings.wildCount,
+        state.reelSettings.cardCount,
+      );
+      return withUndoSnapshot(state, {
+        wildSettings: {
+          ...state.wildSettings,
+          enabled,
+          wildSymbols: resolveRuleSymbolConflicts(
+            state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : [],
+            wildSymbols,
+            state.reelSettings.cardCount,
+          ),
+        },
+        jackpotSettings: state.jackpotSettings.enabled
+          ? resolveJackpotSettings(
+              state.jackpotSettings,
+              [
+                ...(state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : []),
+                ...(enabled ? wildSymbols : []),
+              ],
+              state.reelSettings.cardCount,
+            )
+          : state.jackpotSettings,
+      });
+    }),
+  setWildCount: (count) =>
+    set((state) => {
+      const wildSymbols = resizeRuleSymbols(
+        state.wildSettings.wildSymbols,
+        count,
+        state.reelSettings.cardCount,
+      );
+      const nextWildSymbols = resolveRuleSymbolConflicts(
+        state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : [],
+        wildSymbols,
+        state.reelSettings.cardCount,
+      );
+      return withUndoSnapshot(state, {
+        wildSettings: {
+          ...state.wildSettings,
+          wildCount: nextWildSymbols.length,
+          wildSymbols: nextWildSymbols,
+        },
+        jackpotSettings: state.jackpotSettings.enabled
+          ? resolveJackpotSettings(
+              state.jackpotSettings,
+              [
+                ...(state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : []),
+                ...nextWildSymbols,
+              ],
+              state.reelSettings.cardCount,
+            )
+          : state.jackpotSettings,
+      });
+    }),
+  setWildLineRule: (rule) =>
+    set((state) =>
+      withUndoSnapshot(state, {
+        wildSettings: {
+          ...state.wildSettings,
+          lineRule: rule,
+        },
+      }),
+    ),
+  setWildSymbol: (index, symbolIndex) =>
+    set((state) => {
+      if (index < 0 || index >= state.wildSettings.wildSymbols.length) {
+        return state;
+      }
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const previousSymbolIndex = state.wildSettings.wildSymbols[index];
+      const wildSymbols = state.wildSettings.wildSymbols.map((symbol, symbolIndexPosition) =>
+        symbolIndexPosition === index
+          ? safeSymbolIndex
+          : clampRuleSymbol(symbol, state.reelSettings.cardCount),
+      );
+      const scatterSymbols =
+        state.scatterSettings.enabled &&
+        state.scatterSettings.scatterSymbols.includes(safeSymbolIndex)
+          ? resolveRuleSymbolConflicts(
+              wildSymbols,
+              state.scatterSettings.scatterSymbols,
+              state.reelSettings.cardCount,
+              previousSymbolIndex,
+            )
+          : state.scatterSettings.scatterSymbols;
+
+      return withUndoSnapshot(state, {
+        scatterSettings: {
+          ...state.scatterSettings,
+          scatterSymbols,
+        },
+        jackpotSettings: state.jackpotSettings.enabled
+          ? resolveJackpotSettings(
+              state.jackpotSettings,
+              [...(state.scatterSettings.enabled ? scatterSymbols : []), ...wildSymbols],
+              state.reelSettings.cardCount,
+            )
+          : state.jackpotSettings,
+        wildSettings: {
+          ...state.wildSettings,
+          wildSymbols,
+        },
+      });
+    }),
+  setJackpotEnabled: (enabled) =>
+    set((state) => {
+      const jackpotSymbols = resizeRuleSymbols(
+        state.jackpotSettings.jackpotSymbols,
+        state.jackpotSettings.jackpotCount,
+        state.reelSettings.cardCount,
+      );
+      return withUndoSnapshot(state, {
+        jackpotSettings: {
+          ...state.jackpotSettings,
+          enabled,
+          jackpotSymbols: resolveRuleSymbolConflicts(
+            [
+              ...(state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : []),
+              ...(state.wildSettings.enabled ? state.wildSettings.wildSymbols : []),
+            ],
+            jackpotSymbols,
+            state.reelSettings.cardCount,
+          ),
+        },
+      });
+    }),
+  setJackpotCount: (count) =>
+    set((state) => {
+      const jackpotSymbols = resizeRuleSymbols(
+        state.jackpotSettings.jackpotSymbols,
+        count,
+        state.reelSettings.cardCount,
+      );
+      const nextJackpotSymbols = resolveRuleSymbolConflicts(
+        [
+          ...(state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : []),
+          ...(state.wildSettings.enabled ? state.wildSettings.wildSymbols : []),
+        ],
+        jackpotSymbols,
+        state.reelSettings.cardCount,
+      );
+      return withUndoSnapshot(state, {
+        jackpotSettings: {
+          ...state.jackpotSettings,
+          jackpotCount: nextJackpotSymbols.length,
+          jackpotSymbols: nextJackpotSymbols,
+        },
+      });
+    }),
+  setJackpotSymbol: (index, symbolIndex) =>
+    set((state) => {
+      if (index < 0 || index >= state.jackpotSettings.jackpotSymbols.length) {
+        return state;
+      }
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const previousSymbolIndex = state.jackpotSettings.jackpotSymbols[index];
+      const jackpotSymbols = state.jackpotSettings.jackpotSymbols.map(
+        (symbol, symbolIndexPosition) =>
+          symbolIndexPosition === index
+            ? safeSymbolIndex
+            : clampRuleSymbol(symbol, state.reelSettings.cardCount),
+      );
+
+      return withUndoSnapshot(state, {
+        jackpotSettings: {
+          ...state.jackpotSettings,
+          jackpotSymbols: resolveRuleSymbolConflicts(
+            [
+              ...(state.scatterSettings.enabled ? state.scatterSettings.scatterSymbols : []),
+              ...(state.wildSettings.enabled ? state.wildSettings.wildSymbols : []),
+            ],
+            jackpotSymbols,
+            state.reelSettings.cardCount,
+            previousSymbolIndex,
+          ),
+        },
+      });
+    }),
+  setReelSlotFrameEnabled: (enabled) =>
+    set((state) =>
+      withUndoSnapshot(state, {
+        reelSettings: {
+          ...state.reelSettings,
+          slotFrameEnabled: enabled,
+        },
+      }),
+    ),
   setReelMode: (mode) =>
     set((state) =>
       withUndoSnapshot(state, {
@@ -955,6 +1712,87 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
         ...state.reelSettings,
         [key]: Math.min(maxByKey[key], Math.max(minByKey[key], roundedValue)),
       };
+      const resizedScatterSymbols = resizeRuleSymbols(
+        state.scatterSettings.scatterSymbols,
+        state.scatterSettings.scatterCount,
+        reelSettings.cardCount,
+      );
+      const cardGroupSettings =
+        key === "cardCount"
+          ? {
+              ...state.cardGroupSettings,
+              groups: resizeCardGroups(
+                state.cardGroupSettings.groups,
+                state.cardGroupSettings.groupCount,
+                reelSettings.cardCount,
+              ),
+            }
+          : state.cardGroupSettings;
+      const resizedWildSymbols = resizeRuleSymbols(
+        state.wildSettings.wildSymbols,
+        state.wildSettings.wildCount,
+        reelSettings.cardCount,
+      );
+      const scatterSettings =
+        key === "cardCount"
+          ? {
+              ...state.scatterSettings,
+              scatterCount: resizedScatterSymbols.length,
+              scatterSymbols: state.wildSettings.enabled
+                ? resolveRuleSymbolConflicts(
+                    resizedWildSymbols,
+                    resizedScatterSymbols,
+                    reelSettings.cardCount,
+                  )
+                : resizedScatterSymbols,
+            }
+          : state.scatterSettings;
+      const wildSettings =
+        key === "cardCount"
+          ? {
+              ...state.wildSettings,
+              wildCount: resizedWildSymbols.length,
+              wildSymbols: state.scatterSettings.enabled
+                ? resolveRuleSymbolConflicts(
+                    scatterSettings.scatterSymbols,
+                    resizedWildSymbols,
+                    reelSettings.cardCount,
+                  )
+                : resizedWildSymbols,
+            }
+          : state.wildSettings;
+      const jackpotReservedSymbols = [
+        ...(scatterSettings.enabled ? scatterSettings.scatterSymbols : []),
+        ...(wildSettings.enabled ? wildSettings.wildSymbols : []),
+      ];
+      const maxJackpotCount = Math.max(
+        1,
+        reelSettings.cardCount - new Set(jackpotReservedSymbols).size,
+      );
+      const resizedAvailableJackpotSymbols = resizeRuleSymbols(
+        state.jackpotSettings.jackpotSymbols,
+        Math.min(state.jackpotSettings.jackpotCount, maxJackpotCount),
+        reelSettings.cardCount,
+      );
+      const jackpotSettings =
+        key === "cardCount"
+          ? {
+              ...state.jackpotSettings,
+              jackpotCount: resizedAvailableJackpotSymbols.length,
+              jackpotSymbols:
+                state.scatterSettings.enabled || state.wildSettings.enabled
+                  ? resolveRuleSymbolConflicts(
+                      jackpotReservedSymbols,
+                      resizedAvailableJackpotSymbols,
+                      reelSettings.cardCount,
+                    )
+                  : resizedAvailableJackpotSymbols,
+            }
+          : state.jackpotSettings;
+      const symbolWeights =
+        key === "cardCount"
+          ? normalizeSymbolWeights(state.symbolWeights, reelSettings.cardCount)
+          : state.symbolWeights;
       const hasActiveAspectReelLayers = state.layers.some(
         (layer) =>
           layer.moduleId === REELS_CARDS_MODULE_ID &&
@@ -967,13 +1805,14 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
             ? reflowReelLayersForAspectRatio(state.layers, reelSettings, state.canvasAspectRatio)
             : key === "columns" || key === "rows"
               ? hasActiveAspectReelLayers
-                ? createReelLayers(reelSettings, state.canvasAspectRatio)
+                ? createReelLayers(reelSettings, state.canvasAspectRatio, symbolWeights)
                 : state.layers
               : key === "cardCount"
                 ? resizeReelLayersForAspectRatio(
                     state.layers,
                     reelSettings,
                     state.canvasAspectRatio,
+                    symbolWeights,
                   )
                 : state.layers;
 
@@ -992,8 +1831,16 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
           : layers;
 
       return withUndoSnapshot(state, {
+        cardGroupSettings: {
+          ...cardGroupSettings,
+          groupCount: cardGroupSettings.groups.length,
+        },
         layers: nextLayers,
         reelSettings,
+        scatterSettings,
+        jackpotSettings,
+        symbolWeights,
+        wildSettings,
       });
     }),
   setLayerSymbolImages: (layerId, images) =>
@@ -1032,6 +1879,100 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
         symbols,
       ),
     })),
+  setSymbolWeight: (symbolIndex, weight) =>
+    set((state) => {
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const normalizedWeights = normalizeSymbolWeights(
+        state.symbolWeights,
+        state.reelSettings.cardCount,
+      );
+      const nextWeight = Math.max(0, Number.isFinite(weight) ? Number(weight) : 0);
+
+      return withUndoSnapshot(state, {
+        symbolWeights: normalizedWeights.map((currentWeight, index) =>
+          index === safeSymbolIndex - 1 ? nextWeight : currentWeight,
+        ),
+      });
+    }),
+  setCombinationPayout: (symbolIndex, matchCount, payout) =>
+    set((state) => {
+      const safeSymbolIndex =
+        symbolIndex < 0
+          ? Math.round(symbolIndex)
+          : clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const maxMatchCount = Math.max(3, state.reelSettings.columns, state.reelSettings.rows);
+      const safeMatchCount = Math.min(
+        maxMatchCount,
+        Math.max(3, Math.round(Number.isFinite(matchCount) ? matchCount : 3)),
+      );
+
+      return withUndoSnapshot(state, {
+        combinationPayouts: {
+          ...state.combinationPayouts,
+          [safeSymbolIndex]: {
+            ...(state.combinationPayouts[safeSymbolIndex] ?? {}),
+            [safeMatchCount]: clampPayout(payout),
+          },
+        },
+      });
+    }),
+  setWildPayout: (symbolIndex, matchCount, payout) =>
+    set((state) => {
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const maxMatchCount = Math.max(3, state.reelSettings.columns, state.reelSettings.rows);
+      const safeMatchCount = Math.min(
+        maxMatchCount,
+        Math.max(3, Math.round(Number.isFinite(matchCount) ? matchCount : 3)),
+      );
+
+      return withUndoSnapshot(state, {
+        wildPayouts: {
+          ...state.wildPayouts,
+          [safeSymbolIndex]: {
+            ...(state.wildPayouts[safeSymbolIndex] ?? {}),
+            [safeMatchCount]: clampPayout(payout),
+          },
+        },
+      });
+    }),
+  setJackpotPayout: (symbolIndex, matchCount, payout) =>
+    set((state) => {
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const maxMatchCount = Math.max(3, state.reelSettings.columns, state.reelSettings.rows);
+      const safeMatchCount = Math.min(
+        maxMatchCount,
+        Math.max(3, Math.round(Number.isFinite(matchCount) ? matchCount : 3)),
+      );
+
+      return withUndoSnapshot(state, {
+        jackpotPayouts: {
+          ...state.jackpotPayouts,
+          [safeSymbolIndex]: {
+            ...(state.jackpotPayouts[safeSymbolIndex] ?? {}),
+            [safeMatchCount]: clampPayout(payout),
+          },
+        },
+      });
+    }),
+  setScatterFreespins: (symbolIndex, appearanceCount, freespins) =>
+    set((state) => {
+      const safeSymbolIndex = clampRuleSymbol(symbolIndex, state.reelSettings.cardCount);
+      const maxAppearanceCount = Math.max(2, state.reelSettings.columns, state.reelSettings.rows);
+      const safeAppearanceCount = Math.min(
+        maxAppearanceCount,
+        Math.max(2, Math.round(Number.isFinite(appearanceCount) ? appearanceCount : 2)),
+      );
+
+      return withUndoSnapshot(state, {
+        scatterFreespins: {
+          ...state.scatterFreespins,
+          [safeSymbolIndex]: {
+            ...(state.scatterFreespins[safeSymbolIndex] ?? {}),
+            [safeAppearanceCount]: clampFreespins(freespins),
+          },
+        },
+      });
+    }),
   undo: () =>
     set((state) => {
       const previousSnapshot = state.pastSnapshots.at(-1);
@@ -1054,9 +1995,32 @@ export const useEditorStore = create<EditorStoreState>((set, get) => ({
   resetEditor: () =>
     set({
       ...initialState,
+      lineTraceSettings: { ...initialState.lineTraceSettings },
+      lineValidationMode: initialState.lineValidationMode,
+      cardGroupSettings: {
+        ...initialState.cardGroupSettings,
+        groups: initialState.cardGroupSettings.groups.map((group) => [...group]),
+      },
+      combinationPayouts: cloneCombinationPayouts(initialState.combinationPayouts),
+      wildPayouts: cloneCombinationPayouts(initialState.wildPayouts),
+      jackpotPayouts: cloneCombinationPayouts(initialState.jackpotPayouts),
+      scatterFreespins: cloneScatterFreespins(initialState.scatterFreespins),
       moduleVisibility: { ...initialState.moduleVisibility },
       reelSettings: { ...initialState.reelSettings },
+      scatterSettings: {
+        ...initialState.scatterSettings,
+        scatterSymbols: [...initialState.scatterSettings.scatterSymbols],
+      },
       spinSpeed: initialState.spinSpeed,
+      symbolWeights: [...initialState.symbolWeights],
+      wildSettings: {
+        ...initialState.wildSettings,
+        wildSymbols: [...initialState.wildSettings.wildSymbols],
+      },
+      jackpotSettings: {
+        ...initialState.jackpotSettings,
+        jackpotSymbols: [...initialState.jackpotSettings.jackpotSymbols],
+      },
       glowEnabled: initialState.glowEnabled,
       buttonGlowDistance: initialState.buttonGlowDistance,
       hoverGlowDistance: initialState.hoverGlowDistance,

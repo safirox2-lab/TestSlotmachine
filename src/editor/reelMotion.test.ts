@@ -43,6 +43,16 @@ describe("reel motion", () => {
     expect(getVisibleReelMotionSymbols(nextWindow, 4)).toEqual([1, 2, 11, 12, 21, 22, 31, 32]);
   });
 
+  it("uses symbol weights when generating new reel symbols", () => {
+    const nextWindow = advanceReelMotionWindow([[1, 2, 3]], {
+      random: () => 0.9,
+      symbolCount: 3,
+      symbolWeights: [1, 1, 8],
+    });
+
+    expect(nextWindow[0]?.[0]).toBe(3);
+  });
+
   it("advances only columns that have not reached their random stop step", () => {
     const window = [
       [1, 11, 21, 31, 41, 10],

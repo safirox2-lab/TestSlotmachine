@@ -1,9 +1,12 @@
+import { randomWeightedSymbol } from "./symbolWeights";
+
 export type ReelMotionWindow = number[][];
 
 interface ReelMotionRandomConfig {
   currentStep?: number;
   random?: () => number;
   symbolCount: number;
+  symbolWeights?: number[];
   stopSchedule?: number[];
 }
 
@@ -13,15 +16,12 @@ interface CreateReelMotionWindowConfig extends ReelMotionRandomConfig {
   visibleSymbols: number[];
 }
 
-function randomSymbol(symbolCount: number, random: () => number): number {
-  return Math.floor(random() * symbolCount) + 1;
-}
-
 export function createReelMotionWindow({
   columns,
   random = Math.random,
   rows,
   symbolCount,
+  symbolWeights,
   visibleSymbols,
 }: CreateReelMotionWindowConfig): ReelMotionWindow {
   return Array.from({ length: columns }, (_, columnIndex) => {
@@ -31,16 +31,22 @@ export function createReelMotionWindow({
     );
 
     return [
-      randomSymbol(symbolCount, random),
+      randomWeightedSymbol({ cardCount: symbolCount, random, weights: symbolWeights }),
       ...visibleColumnSymbols,
-      randomSymbol(symbolCount, random),
+      randomWeightedSymbol({ cardCount: symbolCount, random, weights: symbolWeights }),
     ];
   });
 }
 
 export function advanceReelMotionWindow(
   window: ReelMotionWindow,
-  { currentStep, random = Math.random, stopSchedule, symbolCount }: ReelMotionRandomConfig,
+  {
+    currentStep,
+    random = Math.random,
+    stopSchedule,
+    symbolCount,
+    symbolWeights,
+  }: ReelMotionRandomConfig,
 ): ReelMotionWindow {
   return window.map((columnSymbols, columnIndex) => {
     const stopStep = stopSchedule?.[columnIndex];
@@ -48,7 +54,10 @@ export function advanceReelMotionWindow(
       return columnSymbols;
     }
 
-    return [randomSymbol(symbolCount, random), ...columnSymbols.slice(0, -1)];
+    return [
+      randomWeightedSymbol({ cardCount: symbolCount, random, weights: symbolWeights }),
+      ...columnSymbols.slice(0, -1),
+    ];
   });
 }
 

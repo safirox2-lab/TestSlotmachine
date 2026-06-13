@@ -7,11 +7,13 @@ import {
   EDITOR_DATA_OPTIONS,
   EDITOR_MODULES,
   REELS_CARDS_MODULE_ID,
+  RULES_COMBINATIONS_MODULE_ID,
+  RULES_WINS_MODULE_ID,
 } from "./editorModules.config";
 
 describe("editor module config", () => {
-  it("defines the Botones y Datos and Reels y Cartas modules", () => {
-    expect(EDITOR_MODULES).toHaveLength(2);
+  it("defines the editor modules", () => {
+    expect(EDITOR_MODULES).toHaveLength(4);
     expect(EDITOR_MODULES[0]).toMatchObject({
       id: BUTTONS_DATA_MODULE_ID,
       title: "Botones y Datos",
@@ -20,7 +22,14 @@ describe("editor module config", () => {
       id: REELS_CARDS_MODULE_ID,
       title: "Reels y Cartas",
     });
-    expect(EDITOR_MODULES.map((module) => module.title)).not.toContain("Reglas");
+    expect(EDITOR_MODULES[2]).toMatchObject({
+      id: RULES_WINS_MODULE_ID,
+      title: "Trazados de Victoria",
+    });
+    expect(EDITOR_MODULES[3]).toMatchObject({
+      id: RULES_COMBINATIONS_MODULE_ID,
+      title: "Reglas y Combinaciones",
+    });
     expect(EDITOR_MODULES.map((module) => module.title)).not.toContain("Datos del panel");
   });
 

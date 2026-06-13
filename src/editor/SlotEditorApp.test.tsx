@@ -20,6 +20,14 @@ function renderEditor() {
   return root;
 }
 
+function findModuleSection(title: string) {
+  const header = Array.from(host.querySelectorAll(".slot-editor__module-header strong")).find(
+    (element) => element.textContent === title,
+  );
+
+  return header?.closest("section");
+}
+
 describe("SlotEditorApp", () => {
   beforeEach(() => {
     (
@@ -40,6 +48,8 @@ describe("SlotEditorApp", () => {
     expect(host.textContent).toContain("Modulos");
     expect(host.textContent).toContain("Botones y Datos");
     expect(host.textContent).toContain("Reels y Cartas");
+    expect(host.textContent).toContain("Trazados de Victoria");
+    expect(host.textContent).toContain("Reglas y Combinaciones");
     expect(host.textContent).toContain("Agregar Boton");
     expect(host.textContent).toContain("Agregar Datos");
     expect(host.textContent).toContain("Colores");
@@ -51,8 +61,12 @@ describe("SlotEditorApp", () => {
     const moduleTitles = Array.from(
       host.querySelectorAll(".slot-editor__module-header strong"),
     ).map((element) => element.textContent);
-    expect(moduleTitles).toEqual(["Botones y Datos", "Reels y Cartas"]);
-    expect(moduleTitles).not.toContain("Reglas");
+    expect(moduleTitles).toEqual([
+      "Botones y Datos",
+      "Reels y Cartas",
+      "Trazados de Victoria",
+      "Reglas y Combinaciones",
+    ]);
     expect(moduleTitles).not.toContain("Datos del panel");
     expect(host.querySelector(".slot-editor__phone")).not.toBeNull();
     expect(host.querySelector<HTMLElement>(".slot-editor")?.className).toContain("is-aspect-9-16");
@@ -96,9 +110,38 @@ describe("SlotEditorApp", () => {
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Tamano del grid"]')?.value).toBe(
       "1",
     );
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Marco de slots"]')?.checked,
+    ).toBe(true);
     expect(host.querySelector("button")?.textContent).toBeTruthy();
     expect(host.textContent).toContain("Eliminar Grid y Cartas");
     expect(host.textContent).toContain("Reel Stop");
+
+    act(() => root.unmount());
+  });
+
+  it("toggles reel slot frames from the Reels y Cartas module", () => {
+    const root = renderEditor();
+    const reelsToggle = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Desplegar modulo Reels y Cartas"]',
+    );
+
+    act(() => {
+      reelsToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const frameToggle = host.querySelector<HTMLInputElement>('input[aria-label="Marco de slots"]');
+
+    act(() => {
+      frameToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(useEditorStore.getState().reelSettings.slotFrameEnabled).toBe(false);
+    expect(host.querySelector<HTMLElement>('[data-layer-id="reel-card-1-1"]')?.className).toContain(
+      "has-no-frame",
+    );
 
     act(() => root.unmount());
   });
@@ -134,7 +177,7 @@ describe("SlotEditorApp", () => {
     expect(allAtOnce).not.toBeNull();
     expect(leftToRight).not.toBeNull();
     expect(randomOneByOne).not.toBeNull();
-    expect(randomOneByOne?.getAttribute("aria-pressed")).toBe("true");
+    expect(leftToRight?.getAttribute("aria-pressed")).toBe("true");
 
     act(() => {
       leftToRight?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -148,6 +191,556 @@ describe("SlotEditorApp", () => {
         )
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("configures scatter symbols from existing reel cards", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelMode("tape");
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(useEditorStore.getState().activeModuleId).toBe("reels-cards");
+    expect(findModuleSection("Reels y Cartas")?.textContent).toContain("Scatter");
+    expect(findModuleSection("Trazados de Victoria")?.textContent).not.toContain("Tiene Scatter");
+
+    const scatterSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Scatter"),
+    );
+
+    act(() => {
+      scatterSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const scatterToggle = host.querySelector<HTMLInputElement>('input[aria-label="Tiene Scatter"]');
+
+    expect(scatterToggle?.checked).toBe(false);
+    expect(host.querySelector('input[aria-label="# Scatter"]')).toBeNull();
+
+    act(() => {
+      scatterToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const scatterCount = host.querySelector<HTMLInputElement>('input[aria-label="# Scatter"]');
+
+    expect(useEditorStore.getState().scatterSettings.enabled).toBe(true);
+    expect(scatterCount?.value).toBe("1");
+    expect(
+      Array.from(host.querySelectorAll<HTMLSelectElement>('select[aria-label^="Carta Scatter"]')),
+    ).toHaveLength(1);
+
+    act(() => {
+      if (scatterCount) {
+        scatterCount.value = "2";
+      }
+      scatterCount?.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    });
+
+    const selectors = Array.from(
+      host.querySelectorAll<HTMLSelectElement>('select[aria-label^="Carta Scatter"]'),
+    );
+
+    expect(selectors).toHaveLength(2);
+    expect(Array.from(selectors[0]?.options ?? []).map((option) => option.textContent)).toEqual([
+      "Carta 1",
+      "Carta 2",
+      "Carta 3",
+      "Carta 4",
+      "Carta 5",
+    ]);
+
+    act(() => {
+      if (selectors[1]) {
+        selectors[1].value = "3";
+        selectors[1].dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().scatterSettings).toEqual({
+      enabled: true,
+      readMode: "individual",
+      scatterCount: 2,
+      scatterSymbols: [1, 3],
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("configures wild symbols from existing reel cards", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelMode("tape");
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(findModuleSection("Reels y Cartas")?.textContent).toContain("Wild");
+    expect(findModuleSection("Trazados de Victoria")?.textContent).not.toContain("Wild");
+    expect(useEditorStore.getState().activeModuleId).toBe("reels-cards");
+
+    const wildSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Wild"),
+    );
+
+    act(() => {
+      wildSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const wildToggle = host.querySelector<HTMLInputElement>('input[aria-label="Tiene Wild"]');
+
+    expect(wildToggle?.checked).toBe(false);
+    expect(host.querySelector('input[aria-label="# Wild"]')).toBeNull();
+
+    act(() => {
+      wildToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const wildCount = host.querySelector<HTMLInputElement>('input[aria-label="# Wild"]');
+
+    expect(useEditorStore.getState().wildSettings.enabled).toBe(true);
+    expect(wildCount?.value).toBe("1");
+
+    act(() => {
+      if (wildCount) {
+        wildCount.value = "2";
+      }
+      wildCount?.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    });
+
+    const selectors = Array.from(
+      host.querySelectorAll<HTMLSelectElement>('select[aria-label^="Carta Wild"]'),
+    );
+
+    expect(selectors).toHaveLength(2);
+    expect(Array.from(selectors[0]?.options ?? []).map((option) => option.textContent)).toEqual([
+      "Carta 1",
+      "Carta 2",
+      "Carta 3",
+      "Carta 4",
+      "Carta 5",
+    ]);
+
+    act(() => {
+      if (selectors[0]) {
+        selectors[0].value = "4";
+        selectors[0].dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().wildSettings).toEqual({
+      enabled: true,
+      lineRule: "all",
+      wildCount: 2,
+      wildSymbols: [4, 2],
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("defaults Wild to the next card when Scatter already uses Carta 1", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().addReel();
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setWildEnabled(true);
+      root.render(<SlotEditorApp />);
+    });
+
+    const scatterSelect = host.querySelector<HTMLSelectElement>(
+      'select[aria-label="Carta Scatter 1"]',
+    );
+    const wildSelect = host.querySelector<HTMLSelectElement>('select[aria-label="Carta Wild 1"]');
+
+    expect(scatterSelect?.value).toBe("1");
+    expect(wildSelect?.value).toBe("2");
+
+    act(() => {
+      if (wildSelect) {
+        wildSelect.value = "1";
+        wildSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().wildSettings.wildSymbols).toEqual([1]);
+    expect(useEditorStore.getState().scatterSettings.scatterSymbols).toEqual([2]);
+
+    act(() => root.unmount());
+  });
+
+  it("configures jackpot symbols from existing reel cards", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().addReel();
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setWildEnabled(true);
+      useEditorStore.getState().setJackpotEnabled(true);
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(findModuleSection("Reels y Cartas")?.textContent).toContain("Jackpot");
+
+    const jackpotSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Jackpot"),
+    );
+
+    act(() => {
+      jackpotSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const jackpotSelect = host.querySelector<HTMLSelectElement>(
+      'select[aria-label="Carta Jackpot 1"]',
+    );
+
+    expect(jackpotSelect?.value).toBe("3");
+    expect(useEditorStore.getState().jackpotSettings.jackpotSymbols).toEqual([3]);
+
+    act(() => root.unmount());
+  });
+
+  it("shows the Reglas y Combinaciones payout table with chances and editable payouts", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().addReel();
+      useEditorStore
+        .getState()
+        .setLayerSymbolImages("reel-card-1-1", [{ name: "scatter.png", src: "blob:scatter.png" }]);
+      useEditorStore.getState().setScatterEnabled(true);
+      useEditorStore.getState().setScatterSymbol(0, 1);
+      useEditorStore.getState().setWildEnabled(true);
+      useEditorStore.getState().setWildSymbol(0, 2);
+      useEditorStore.getState().setJackpotEnabled(true);
+      useEditorStore.getState().setJackpotSymbol(0, 3);
+      useEditorStore.getState().setCardGroupCount(1);
+      useEditorStore.getState().setCardGroupSize(0, 1);
+      useEditorStore.getState().setCardGroupSymbol(0, 0, 4);
+      useEditorStore.getState().setActiveModule("rules-combinations");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(host.querySelector(".slot-editor__phone")).toBeNull();
+    expect(host.querySelector(".slot-editor__rules-combinations-workspace")).not.toBeNull();
+    expect(host.textContent).toContain("6 combinaciones");
+    expect(host.querySelector(".slot-editor__combination-table")?.textContent).not.toContain(
+      "Carta 1",
+    );
+    expect(host.querySelector(".slot-editor__combination-table")?.textContent).not.toContain(
+      "Carta 2",
+    );
+    expect(host.querySelector(".slot-editor__combination-table")?.textContent).not.toContain(
+      "Carta 3",
+    );
+    expect(host.querySelector(".slot-editor__combination-table")?.textContent).toContain("Carta 5");
+    expect(host.querySelector('[data-combination-symbol="4"]')).toBeNull();
+    expect(host.querySelector('[data-combination-symbol="-1"]')).toBeNull();
+    expect(host.querySelector(".slot-editor__combination-table")?.textContent).not.toContain(
+      "Grupo 1",
+    );
+    expect(host.querySelector(".slot-editor__combination-table-head")?.textContent).toContain("x3");
+    expect(host.querySelector(".slot-editor__combination-table-head")?.textContent).toContain("x5");
+    expect(
+      host
+        .querySelector<HTMLButtonElement>('button[aria-label="Ver Catalogo de Cartas"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    const specialSectionsText = Array.from(
+      host.querySelectorAll(".slot-editor__rules-special-section"),
+    )
+      .map((section) => section.textContent)
+      .join(" ");
+    expect(specialSectionsText).toContain("Wild Joker");
+    expect(specialSectionsText).toContain("Scatter Freespins");
+    expect(specialSectionsText).toContain("Jackpot");
+    expect(specialSectionsText).toContain("chance");
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x2"]')?.value,
+    ).toBe("0");
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Freespins Carta 1 x5"]'),
+    ).not.toBeNull();
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Wild Carta 2 x3"]')?.value).toBe(
+      "0",
+    );
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="Wild Carta 2 x5"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      const freespinsInput = host.querySelector<HTMLInputElement>(
+        'input[aria-label="Freespins Carta 1 x3"]',
+      );
+      if (freespinsInput) {
+        freespinsInput.value = "10";
+        freespinsInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().scatterFreespins[1]?.[3]).toBe(10);
+    act(() => {
+      const wildInput = host.querySelector<HTMLInputElement>('input[aria-label="Wild Carta 2 x3"]');
+      if (wildInput) {
+        wildInput.value = "75";
+        wildInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().wildPayouts[2]?.[3]).toBe(75);
+    act(() => {
+      const jackpotInput = host.querySelector<HTMLInputElement>(
+        'input[aria-label="Jackpot Carta 3 x3"]',
+      );
+      if (jackpotInput) {
+        jackpotInput.value = "250";
+        jackpotInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().jackpotPayouts[3]?.[3]).toBe(250);
+    act(() => {
+      host
+        .querySelector<HTMLButtonElement>('button[aria-label="Ver Grupos de Cartas"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      host
+        .querySelector<HTMLButtonElement>('button[aria-label="Ver Grupos de Cartas"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(host.querySelector('[data-combination-symbol="-1"]')).not.toBeNull();
+    expect(host.querySelector(".slot-editor__combination-table")?.textContent).toContain("Grupo 1");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Pago Grupo 1 x3"]')?.value).toBe(
+      "0",
+    );
+
+    act(() => {
+      const payoutInput = host.querySelector<HTMLInputElement>(
+        'input[aria-label="Pago Grupo 1 x3"]',
+      );
+      if (payoutInput) {
+        payoutInput.value = "12.5";
+        payoutInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().combinationPayouts[-1]?.[3]).toBe(12.5);
+    expect(host.querySelector(".slot-editor__rules-side-list")?.textContent).toContain("Carta 2");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Peso de Carta 1"]')?.value).toBe(
+      "1",
+    );
+
+    act(() => {
+      const weightInput = host.querySelector<HTMLInputElement>(
+        'input[aria-label="Peso de Carta 1"]',
+      );
+      if (weightInput) {
+        weightInput.value = "8";
+        weightInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+    });
+
+    expect(useEditorStore.getState().symbolWeights).toEqual([8, 1, 1, 1, 1]);
+    expect(host.querySelector(".slot-editor__rules-side-list")?.textContent).toContain("66.67%");
+
+    act(() => root.unmount());
+  });
+
+  it("configures the wild line rule from Reglas y Combinaciones", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-combinations");
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(findModuleSection("Reglas y Combinaciones")?.textContent).toContain("Regla de Wild");
+
+    const wildRuleSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Regla de Wild"),
+    );
+
+    act(() => {
+      wildRuleSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const highestPaying = host.querySelector<HTMLInputElement>(
+      'input[aria-label="Wild solo apoya la linea de mayor pago"]',
+    );
+
+    expect(highestPaying?.checked).toBe(false);
+
+    act(() => {
+      highestPaying?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().wildSettings.lineRule).toBe("highest-paying");
+
+    act(() => root.unmount());
+  });
+
+  it("configures line trace directions from Trazados de Victoria", () => {
+    const root = renderEditor();
+
+    expect(findModuleSection("Trazados de Victoria")?.textContent).toContain("Trazados");
+    expect(findModuleSection("Reels y Cartas")?.textContent).not.toContain("Trazados");
+
+    const traceSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Trazados"),
+    );
+
+    act(() => {
+      traceSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const horizontal = host.querySelector<HTMLInputElement>(
+      'input[aria-label="Trazado Horizontal"]',
+    );
+    const vertical = host.querySelector<HTMLInputElement>('input[aria-label="Trazado Vertical"]');
+    const diagonal = host.querySelector<HTMLInputElement>('input[aria-label="Trazado Diagonal"]');
+    const zigzag = host.querySelector<HTMLInputElement>('input[aria-label="Trazado Zigzag"]');
+    const firstReel = host.querySelector<HTMLInputElement>('input[aria-label="Trazado 1er Reel"]');
+
+    expect(horizontal?.checked).toBe(true);
+    expect(vertical?.checked).toBe(false);
+    expect(diagonal?.checked).toBe(true);
+    expect(zigzag?.checked).toBe(true);
+    expect(firstReel?.checked).toBe(false);
+
+    act(() => {
+      firstReel?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().lineTraceSettings).toEqual({
+      diagonal: true,
+      firstReel: true,
+      horizontal: true,
+      vertical: false,
+      zigzag: true,
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("configures scatter reading from Trazados de Victoria", () => {
+    const root = renderEditor();
+
+    expect(findModuleSection("Trazados de Victoria")?.textContent).toContain("Lectura de Scatter");
+
+    const scatterReadSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Lectura de Scatter"),
+    );
+
+    act(() => {
+      scatterReadSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const individualButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Scatter con valor individual"]',
+    );
+    const tracesButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Scatter cuenta para trazados"]',
+    );
+
+    expect(individualButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(tracesButton?.getAttribute("aria-pressed")).toBe("false");
+
+    act(() => {
+      tracesButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().scatterSettings.readMode).toBe("traces");
+    expect(tracesButton?.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("configures trace validation mode from Trazados de Victoria", () => {
+    const root = renderEditor();
+
+    expect(findModuleSection("Trazados de Victoria")?.textContent).toContain(
+      "Validacion de Trazados",
+    );
+
+    const validationSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Validacion de Trazados"),
+    );
+
+    act(() => {
+      validationSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const classicButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Validacion clasica de trazados"]',
+    );
+    const cascadeButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Validacion cascada de trazados"]',
+    );
+
+    expect(classicButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(cascadeButton?.getAttribute("aria-pressed")).toBe("false");
+
+    act(() => {
+      cascadeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().lineValidationMode).toBe("cascade");
+    expect(cascadeButton?.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("configures card groups from Reglas y Combinaciones", () => {
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("rules-combinations");
+      useEditorStore.getState().setReelSetting("cardCount", 5);
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    expect(findModuleSection("Reglas y Combinaciones")?.textContent).toContain("Grupos de Cartas");
+
+    const groupSummary = Array.from(host.querySelectorAll("summary")).find((summary) =>
+      summary.textContent?.includes("Grupos de Cartas"),
+    );
+
+    act(() => {
+      groupSummary?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const groupCount = host.querySelector<HTMLInputElement>('input[aria-label="# Grupos"]');
+
+    act(() => {
+      if (groupCount) {
+        groupCount.value = "1";
+        groupCount.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+    });
+
+    expect(
+      host.querySelector<HTMLInputElement>('input[aria-label="# Cartas Grupo 1"]')?.value,
+    ).toBe("3");
+    expect(
+      Array.from(host.querySelectorAll<HTMLSelectElement>('select[aria-label^="Carta Grupo 1"]')),
+    ).toHaveLength(3);
+    expect(useEditorStore.getState().cardGroupSettings.groups).toEqual([[1, 2, 3]]);
 
     act(() => root.unmount());
   });
@@ -294,6 +887,11 @@ describe("SlotEditorApp", () => {
     );
     expect(symbolOneImages.length).toBeGreaterThanOrEqual(2);
     expect(symbolOneImages.every((image) => image.src === "blob:symbol-001.png")).toBe(true);
+    expect(
+      symbolOneImages.every((image) =>
+        image.closest(".slot-editor__reel-card")?.className.includes("has-symbol-image"),
+      ),
+    ).toBe(true);
     expect(
       host.querySelector<HTMLImageElement>('[data-layer-thumbnail="reel-card-1-1"]')?.src,
     ).toBe("blob:symbol-001.png");
@@ -447,6 +1045,7 @@ describe("SlotEditorApp", () => {
     act(() => {
       useEditorStore.getState().setActiveModule("reels-cards");
       useEditorStore.getState().setReelMode("tape");
+      useEditorStore.getState().setLineTraceEnabled("vertical", true);
       useEditorStore.getState().addReel();
       root.render(<SlotEditorApp />);
     });
@@ -472,6 +1071,7 @@ describe("SlotEditorApp", () => {
     act(() => {
       useEditorStore.getState().setActiveModule("reels-cards");
       useEditorStore.getState().setReelMode("tape");
+      useEditorStore.getState().setLineTraceEnabled("vertical", true);
       useEditorStore.getState().addReel();
       root.render(<SlotEditorApp />);
     });
@@ -508,6 +1108,12 @@ describe("SlotEditorApp", () => {
         symbol.className.includes("is-stopped"),
       ),
     ).toBe(true);
+    const winTraces = Array.from(host.querySelectorAll<HTMLElement>("[data-win-trace]"));
+    expect(winTraces.length).toBeGreaterThan(1);
+    expect(new Set(winTraces.map((trace) => trace.style.stroke)).size).toBeGreaterThan(1);
+    expect(host.querySelector("[data-win-trace-direction='horizontal']")).not.toBeNull();
+    expect(host.querySelector("[data-win-trace-direction='vertical']")).not.toBeNull();
+    expect(host.querySelector("[data-win-trace-direction='diagonal']")).not.toBeNull();
     expect(
       useEditorStore
         .getState()
@@ -655,6 +1261,140 @@ describe("SlotEditorApp", () => {
       expect(button?.disabled).toBe(false);
       expect(button?.className).not.toContain("is-play-locked");
     }
+
+    act(() => root.unmount());
+  });
+
+  it("keeps play buttons locked until cascade validation finishes", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.05);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setLineValidationMode("cascade");
+      useEditorStore.getState().setLineTraceEnabled("vertical", false);
+      useEditorStore.getState().setLineTraceEnabled("diagonal", false);
+      useEditorStore.getState().setLineTraceEnabled("zigzag", false);
+      useEditorStore.getState().setReelStopMode("all-at-once");
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    const spinButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]');
+
+    act(() => {
+      spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      vi.advanceTimersByTime(5440);
+    });
+
+    expect(spinButton?.disabled).toBe(true);
+    expect(spinButton?.className).toContain("is-play-locked");
+
+    act(() => {
+      vi.advanceTimersByTime(850);
+    });
+
+    expect(spinButton?.disabled).toBe(true);
+    expect(spinButton?.className).toContain("is-play-locked");
+    expect(host.querySelector<HTMLElement>("[data-reel-motion-symbol]")?.className).toContain(
+      "is-cascade-dropping",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(50000);
+    });
+
+    expect(spinButton?.disabled).toBe(false);
+    expect(spinButton?.className).not.toContain("is-play-locked");
+
+    act(() => root.unmount());
+  });
+
+  it("runs autoplay and turns the Spin button into a Stop control", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.4);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelStopMode("all-at-once");
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    const autoplayButton = host.querySelector<HTMLButtonElement>(
+      '[data-layer-id="button-autoplay"]',
+    );
+    const spinButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-spin"]');
+    const spinIcon = host.querySelector<HTMLElement>('[data-editor-icon="button-spin"]');
+
+    act(() => {
+      autoplayButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(spinButton?.disabled).toBe(false);
+    expect(spinButton?.className).toContain("is-autoplay-stop");
+    expect(spinIcon?.style.getPropertyValue("--editor-icon-url")).toBe('url("/raw/icon_stop.svg")');
+    expect(autoplayButton?.disabled).toBe(true);
+    expect(autoplayButton?.className).toContain("is-play-locked");
+
+    act(() => {
+      vi.advanceTimersByTime(5440);
+      vi.advanceTimersByTime(700);
+    });
+
+    expect(
+      Array.from(host.querySelectorAll<HTMLElement>("[data-reel-motion-symbol]")).some(
+        (symbol) => !symbol.className.includes("is-stopped"),
+      ),
+    ).toBe(true);
+
+    act(() => {
+      spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(spinButton?.className).not.toContain("is-autoplay-stop");
+    expect(spinIcon?.style.getPropertyValue("--editor-icon-url")).toBe('url("/raw/icon_spin.svg")');
+
+    act(() => root.unmount());
+  });
+
+  it("keeps autoplay reel stop timing aligned with speed changes", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.4);
+    const root = renderEditor();
+
+    act(() => {
+      useEditorStore.getState().setActiveModule("reels-cards");
+      useEditorStore.getState().setReelStopMode("all-at-once");
+      useEditorStore.getState().addReel();
+      root.render(<SlotEditorApp />);
+    });
+
+    const autoplayButton = host.querySelector<HTMLButtonElement>(
+      '[data-layer-id="button-autoplay"]',
+    );
+    const arrowButton = host.querySelector<HTMLButtonElement>('[data-layer-id="button-arrow"]');
+
+    act(() => {
+      autoplayButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      arrowButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      arrowButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(useEditorStore.getState().spinSpeed).toBe("turbo");
+    expect(arrowButton?.disabled).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(1300);
+    });
+
+    expect(
+      Array.from(host.querySelectorAll<HTMLElement>("[data-reel-motion-symbol]")).every((symbol) =>
+        symbol.className.includes("is-stopped"),
+      ),
+    ).toBe(true);
 
     act(() => root.unmount());
   });
@@ -898,6 +1638,9 @@ describe("SlotEditorApp", () => {
     const reelCardRuleStart = css.indexOf(".slot-editor__reel-card {");
     const reelCardRuleEnd = css.indexOf("}", reelCardRuleStart);
     const reelCardRule = css.slice(reelCardRuleStart, reelCardRuleEnd);
+    const imageRuleStart = css.indexOf(".slot-editor__reel-card.has-symbol-image");
+    const imageRuleEnd = css.indexOf("}", imageRuleStart);
+    const imageRule = css.slice(imageRuleStart, imageRuleEnd);
 
     act(() => {
       useEditorStore.getState().setActiveModule("reels-cards");
@@ -918,6 +1661,8 @@ describe("SlotEditorApp", () => {
     expect(staticCard?.style.width).toBe("216px");
     expect(staticCard?.style.height).toBe("259.2px");
     expect(reelCardRule).toContain("padding: 0;");
+    expect(staticCard?.className).toContain("has-symbol-image");
+    expect(imageRule).toContain("background: transparent;");
 
     act(() => {
       spinButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -930,6 +1675,7 @@ describe("SlotEditorApp", () => {
     );
 
     expect(stoppedSymbol?.className).toContain("is-stopped");
+    expect(stoppedSymbol?.className).toContain("has-symbol-image");
     expect(stoppedSymbol?.style.width).toBe(staticCard?.style.width);
     expect(stoppedSymbol?.style.height).toBe(staticCard?.style.height);
     expect(stoppedSymbol?.style.getPropertyValue("--slot-layer-size")).toBe("");
@@ -1225,7 +1971,7 @@ describe("SlotEditorApp", () => {
     const root = renderEditor();
     const details = Array.from(host.querySelectorAll("details"));
 
-    expect(details).toHaveLength(5);
+    expect(details).toHaveLength(14);
     for (const detail of details) {
       expect(detail.open).toBe(false);
     }
@@ -1965,9 +2711,15 @@ describe("SlotEditorApp", () => {
     expect(css).toContain("position: absolute;");
     expect(css).toContain("display: grid;");
     expect(css).toContain("place-items: center;");
-    expect(css).toContain("width: 124px;");
-    expect(css).toContain("height: 124px;");
-    expect(css).toContain("border: 6px solid var(--hud-button-stroke);");
+    expect(css).toContain(
+      "width: calc(var(--slot-editor-button-base-width, 124px) * var(--slot-layer-size, 0.45));",
+    );
+    expect(css).toContain(
+      "height: calc(var(--slot-editor-button-base-height, 124px) * var(--slot-layer-size, 0.45));",
+    );
+    expect(css).toContain(
+      "border: calc(6px * var(--slot-layer-size, 0.45)) solid var(--hud-button-stroke);",
+    );
     expect(css).not.toContain(".slot-editor__hud-button.is-info");
     expect(css).not.toContain(".slot-editor__hud-button.is-minus");
     expect(css).not.toContain(".slot-editor__hud-button.is-spin");
@@ -1994,13 +2746,16 @@ describe("SlotEditorApp", () => {
     expect(css).toContain("flex: 0 0 auto;");
   });
 
-  it("keeps canvas button scale unchanged while pressing or dragging", () => {
+  it("keeps canvas buttons sharp by sizing them directly instead of scaling them", () => {
     const cssPath = join(process.cwd(), "src/editor/slot-editor.css");
     const css = readFileSync(cssPath, "utf8");
 
     expect(css).toContain(".slot-editor .slot-editor__hud-button:active:not(:disabled)");
-    expect(css).toContain("transform: scale(var(--slot-layer-size, 0.45));");
+    expect(css).toContain("--slot-editor-button-base-width: 184px;");
+    expect(css).toContain("--slot-editor-button-base-height: 184px;");
+    expect(css).toContain("--editor-icon-mask-size: 100%;");
     expect(css).toContain("animation: none;");
+    expect(css).not.toContain("transform: scale(var(--slot-layer-size, 0.45));");
     expect(css).not.toContain(
       ".slot-editor .slot-editor__hud-button:active:not(:disabled) {\n  transform: translateY",
     );

@@ -23,6 +23,8 @@ describe("editor store", () => {
 
     expect(state.activeModuleId).toBe("buttons-data");
     expect(state.moduleVisibility["buttons-data"]).toBe(true);
+    expect(state.moduleVisibility["rules-wins"]).toBe(true);
+    expect(state.moduleVisibility["rules-combinations"]).toBe(true);
     expect(state.accentColor).toBe(DEFAULT_EDITOR_ACCENT);
     expect(state.glowColor).toBe(DEFAULT_EDITOR_GLOW_COLOR);
     expect(state.glowEnabled).toBe(true);
@@ -36,6 +38,36 @@ describe("editor store", () => {
     expect(state.canvasAspectRatio).toBe("9:16");
     expect(state.canvasZoom).toBe(0.44);
     expect(state.spinSpeed).toBe("normal");
+    expect(state.scatterSettings).toEqual({
+      enabled: false,
+      readMode: "individual",
+      scatterCount: 1,
+      scatterSymbols: [1],
+    });
+    expect(state.wildSettings).toEqual({
+      enabled: false,
+      lineRule: "all",
+      wildCount: 1,
+      wildSymbols: [1],
+    });
+    expect(state.jackpotSettings).toEqual({
+      enabled: false,
+      jackpotCount: 1,
+      jackpotSymbols: [1],
+    });
+    expect(state.cardGroupSettings).toEqual({
+      groupCount: 0,
+      groups: [],
+    });
+    expect(state.wildPayouts).toEqual({});
+    expect(state.lineTraceSettings).toEqual({
+      diagonal: true,
+      firstReel: false,
+      horizontal: true,
+      vertical: false,
+      zigzag: true,
+    });
+    expect(state.lineValidationMode).toBe("classic");
     expect(state.getActiveModuleLayers().map((layer) => layer.label)).toEqual([
       "Bajar Apuesta",
       "Spin / Jugar",
@@ -135,7 +167,8 @@ describe("editor store", () => {
       paddingY: 4,
       rows: 4,
       scale: 1,
-      stopMode: "random-one-by-one",
+      slotFrameEnabled: true,
+      stopMode: "left-to-right",
     });
 
     state.setActiveModule("reels-cards");
@@ -206,7 +239,8 @@ describe("editor store", () => {
       paddingY: 4,
       rows: 2,
       scale: 1,
-      stopMode: "random-one-by-one",
+      slotFrameEnabled: true,
+      stopMode: "left-to-right",
     });
     expect(state.getActiveModuleLayers()).toHaveLength(12);
     expect(state.getActiveModuleLayers().map((layer) => layer.id)).toEqual([
@@ -260,6 +294,290 @@ describe("editor store", () => {
     });
     expect(reelLayers.every((layer) => (layer.symbolIndex ?? 0) >= 1)).toBe(true);
     expect(reelLayers.every((layer) => (layer.symbolIndex ?? 0) <= 15)).toBe(true);
+  });
+
+  it("stores whether reel slot frames are visible", () => {
+    expect(useEditorStore.getState().reelSettings.slotFrameEnabled).toBe(true);
+
+    useEditorStore.getState().setReelSlotFrameEnabled(false);
+
+    expect(useEditorStore.getState().reelSettings.slotFrameEnabled).toBe(false);
+  });
+
+  it("stores editable symbol weights and resizes them with the card count", () => {
+    expect(useEditorStore.getState().symbolWeights.slice(0, 3)).toEqual([1, 1, 1]);
+
+    useEditorStore.getState().setSymbolWeight(2, 8);
+
+    expect(useEditorStore.getState().symbolWeights[1]).toBe(8);
+
+    useEditorStore.getState().setReelSetting("cardCount", 3);
+
+    expect(useEditorStore.getState().symbolWeights).toEqual([1, 8, 1]);
+
+    useEditorStore.getState().setReelSetting("cardCount", 5);
+
+    expect(useEditorStore.getState().symbolWeights).toEqual([1, 8, 1, 1, 1]);
+  });
+
+  it("stores combination payouts by symbol and match count", () => {
+    useEditorStore.getState().setReelSetting("cardCount", 5);
+    useEditorStore.getState().setCombinationPayout(1, 3, 12.5);
+    useEditorStore.getState().setCombinationPayout(1, 5, 40);
+
+    expect(useEditorStore.getState().combinationPayouts).toEqual({
+      1: {
+        3: 12.5,
+        5: 40,
+      },
+    });
+  });
+
+  it("stores scatter freespins by symbol and appearance count", () => {
+    useEditorStore.getState().setScatterFreespins(1, 3, 12);
+    useEditorStore.getState().setScatterFreespins(1, 5, 20);
+
+    expect(useEditorStore.getState().scatterFreespins).toEqual({
+      1: {
+        3: 12,
+        5: 20,
+      },
+    });
+  });
+
+  it("stores scatter rule settings and clamps them to existing cards", () => {
+    expect(useEditorStore.getState().scatterSettings).toEqual({
+      enabled: false,
+      readMode: "individual",
+      scatterCount: 1,
+      scatterSymbols: [1],
+    });
+
+    useEditorStore.getState().setReelSetting("cardCount", 4);
+    useEditorStore.getState().setScatterEnabled(true);
+    useEditorStore.getState().setScatterCount(3);
+    useEditorStore.getState().setScatterSymbol(1, 4);
+
+    expect(useEditorStore.getState().scatterSettings).toEqual({
+      enabled: true,
+      readMode: "individual",
+      scatterCount: 3,
+      scatterSymbols: [1, 4, 3],
+    });
+
+    useEditorStore.getState().setReelSetting("cardCount", 2);
+
+    expect(useEditorStore.getState().scatterSettings).toEqual({
+      enabled: true,
+      readMode: "individual",
+      scatterCount: 2,
+      scatterSymbols: [1, 2],
+    });
+  });
+
+  it("stores how scatter symbols are read by line tracing", () => {
+    expect(useEditorStore.getState().scatterSettings.readMode).toBe("individual");
+
+    useEditorStore.getState().setScatterReadMode("traces");
+
+    expect(useEditorStore.getState().scatterSettings.readMode).toBe("traces");
+  });
+
+  it("stores wild rule settings and clamps them to existing cards", () => {
+    expect(useEditorStore.getState().wildSettings).toEqual({
+      enabled: false,
+      lineRule: "all",
+      wildCount: 1,
+      wildSymbols: [1],
+    });
+
+    useEditorStore.getState().setReelSetting("cardCount", 5);
+    useEditorStore.getState().setWildEnabled(true);
+    useEditorStore.getState().setWildCount(2);
+    useEditorStore.getState().setWildSymbol(0, 5);
+
+    expect(useEditorStore.getState().wildSettings).toEqual({
+      enabled: true,
+      lineRule: "all",
+      wildCount: 2,
+      wildSymbols: [5, 2],
+    });
+
+    useEditorStore.getState().setWildLineRule("highest-paying");
+
+    expect(useEditorStore.getState().wildSettings.lineRule).toBe("highest-paying");
+
+    useEditorStore.getState().setReelSetting("cardCount", 1);
+
+    expect(useEditorStore.getState().wildSettings).toEqual({
+      enabled: true,
+      lineRule: "highest-paying",
+      wildCount: 1,
+      wildSymbols: [1],
+    });
+  });
+
+  it("keeps scatter and wild symbols from selecting the same card", () => {
+    useEditorStore.getState().setReelSetting("cardCount", 4);
+    useEditorStore.getState().setScatterEnabled(true);
+    useEditorStore.getState().setWildEnabled(true);
+
+    expect(useEditorStore.getState().scatterSettings.scatterSymbols).toEqual([1]);
+    expect(useEditorStore.getState().wildSettings.wildSymbols).toEqual([2]);
+
+    useEditorStore.getState().setWildSymbol(0, 1);
+
+    expect(useEditorStore.getState().wildSettings.wildSymbols).toEqual([1]);
+    expect(useEditorStore.getState().scatterSettings.scatterSymbols).toEqual([2]);
+
+    useEditorStore.getState().setScatterSymbol(0, 1);
+
+    expect(useEditorStore.getState().scatterSettings.scatterSymbols).toEqual([1]);
+    expect(useEditorStore.getState().wildSettings.wildSymbols).toEqual([2]);
+  });
+
+  it("keeps jackpot symbols separate from scatter and wild", () => {
+    useEditorStore.getState().setReelSetting("cardCount", 5);
+    useEditorStore.getState().setScatterEnabled(true);
+    useEditorStore.getState().setWildEnabled(true);
+    useEditorStore.getState().setJackpotEnabled(true);
+
+    expect(useEditorStore.getState().scatterSettings.scatterSymbols).toEqual([1]);
+    expect(useEditorStore.getState().wildSettings.wildSymbols).toEqual([2]);
+    expect(useEditorStore.getState().jackpotSettings.jackpotSymbols).toEqual([3]);
+
+    useEditorStore.getState().setJackpotCount(2);
+    useEditorStore.getState().setJackpotSymbol(1, 5);
+
+    expect(useEditorStore.getState().jackpotSettings).toEqual({
+      enabled: true,
+      jackpotCount: 2,
+      jackpotSymbols: [3, 5],
+    });
+
+    useEditorStore.getState().setReelSetting("cardCount", 2);
+
+    expect(useEditorStore.getState().jackpotSettings).toEqual({
+      enabled: true,
+      jackpotCount: 1,
+      jackpotSymbols: [1],
+    });
+  });
+
+  it("stores jackpot payouts by symbol and match count", () => {
+    useEditorStore.getState().setReelSetting("cardCount", 5);
+    useEditorStore.getState().setJackpotPayout(3, 3, 100);
+    useEditorStore.getState().setJackpotPayout(3, 5, 500);
+
+    expect(useEditorStore.getState().jackpotPayouts).toEqual({
+      3: {
+        3: 100,
+        5: 500,
+      },
+    });
+  });
+
+  it("stores wild payouts by symbol and match count", () => {
+    useEditorStore.getState().setReelSetting("cardCount", 5);
+    useEditorStore.getState().setWildPayout(2, 3, 75);
+    useEditorStore.getState().setWildPayout(2, 5, 250);
+
+    expect(useEditorStore.getState().wildPayouts).toEqual({
+      2: {
+        3: 75,
+        5: 250,
+      },
+    });
+  });
+
+  it("stores card group settings and clamps symbols to existing cards", () => {
+    useEditorStore.getState().setReelSetting("cardCount", 5);
+    useEditorStore.getState().setCardGroupCount(1);
+    useEditorStore.getState().setCardGroupSize(0, 3);
+    useEditorStore.getState().setCardGroupSymbol(0, 0, 1);
+    useEditorStore.getState().setCardGroupSymbol(0, 1, 2);
+    useEditorStore.getState().setCardGroupSymbol(0, 2, 3);
+
+    expect(useEditorStore.getState().cardGroupSettings).toEqual({
+      groupCount: 1,
+      groups: [[1, 2, 3]],
+    });
+
+    useEditorStore.getState().setReelSetting("cardCount", 2);
+
+    expect(useEditorStore.getState().cardGroupSettings).toEqual({
+      groupCount: 1,
+      groups: [[1, 2]],
+    });
+  });
+
+  it("keeps card groups away from special cards and other groups", () => {
+    useEditorStore.getState().setReelSetting("cardCount", 10);
+    useEditorStore.getState().setScatterEnabled(true);
+    useEditorStore.getState().setScatterSymbol(0, 1);
+    useEditorStore.getState().setWildEnabled(true);
+    useEditorStore.getState().setWildSymbol(0, 2);
+    useEditorStore.getState().setJackpotEnabled(true);
+    useEditorStore.getState().setJackpotSymbol(0, 3);
+
+    useEditorStore.getState().setCardGroupCount(2);
+
+    expect(useEditorStore.getState().cardGroupSettings.groups).toEqual([
+      [4, 5, 6],
+      [7, 8, 9],
+    ]);
+
+    useEditorStore.getState().setCardGroupSymbol(1, 0, 4);
+
+    expect(useEditorStore.getState().cardGroupSettings.groups).toEqual([
+      [4, 5, 6],
+      [7, 8, 9],
+    ]);
+
+    useEditorStore.getState().setCardGroupSymbol(0, 0, 1);
+
+    expect(useEditorStore.getState().cardGroupSettings.groups).toEqual([
+      [4, 5, 6],
+      [7, 8, 9],
+    ]);
+  });
+
+  it("stores line tracing rule settings", () => {
+    expect(useEditorStore.getState().lineTraceSettings).toEqual({
+      diagonal: true,
+      firstReel: false,
+      horizontal: true,
+      vertical: false,
+      zigzag: true,
+    });
+
+    useEditorStore.getState().setLineTraceEnabled("vertical", true);
+
+    expect(useEditorStore.getState().lineTraceSettings).toEqual({
+      diagonal: true,
+      firstReel: false,
+      horizontal: true,
+      vertical: true,
+      zigzag: true,
+    });
+
+    useEditorStore.getState().setLineTraceEnabled("firstReel", true);
+
+    expect(useEditorStore.getState().lineTraceSettings).toEqual({
+      diagonal: true,
+      firstReel: true,
+      horizontal: true,
+      vertical: true,
+      zigzag: true,
+    });
+  });
+
+  it("stores line validation mode", () => {
+    expect(useEditorStore.getState().lineValidationMode).toBe("classic");
+
+    useEditorStore.getState().setLineValidationMode("cascade");
+
+    expect(useEditorStore.getState().lineValidationMode).toBe("cascade");
   });
 
   it("regenerates possible RNG card layers when grid dimensions change", () => {

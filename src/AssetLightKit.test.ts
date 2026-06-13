@@ -49,6 +49,12 @@ describe("Delivery slot assets", () => {
     ).toHaveLength(49);
   });
 
+  it("keeps the spin icon viewBox padded so the lower arrow is not clipped", () => {
+    const spinIcon = readProjectFile("public/raw/icon_spin.svg");
+
+    expect(spinIcon).toContain('viewBox="-12 -12 884.82 885.23"');
+  });
+
   it("keeps Delivery runtime paths routed through manifests/configured assets", () => {
     const pixiSource = readProjectFile("src/engine/PixiGame.ts");
     const loadingSource = readProjectFile("src/ui/LoadingOverlay.tsx");

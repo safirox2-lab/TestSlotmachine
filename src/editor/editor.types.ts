@@ -1,4 +1,4 @@
-export type EditorModuleId = "buttons-data" | "reels-cards";
+export type EditorModuleId = "buttons-data" | "reels-cards" | "rules-wins" | "rules-combinations";
 
 export type EditorElementType = "button" | "menu" | "data" | "card";
 

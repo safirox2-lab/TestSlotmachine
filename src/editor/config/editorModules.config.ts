@@ -8,6 +8,8 @@ import type {
 
 export const BUTTONS_DATA_MODULE_ID = "buttons-data" as const;
 export const REELS_CARDS_MODULE_ID = "reels-cards" as const;
+export const RULES_WINS_MODULE_ID = "rules-wins" as const;
+export const RULES_COMBINATIONS_MODULE_ID = "rules-combinations" as const;
 export const DEFAULT_EDITOR_ACCENT = "#f8c048";
 export const DEFAULT_EDITOR_GLOW_COLOR = "#f8c048";
 export const DEFAULT_EDITOR_HOVER_COLOR = "#fff3a3";
@@ -22,6 +24,14 @@ export const EDITOR_MODULES: EditorModuleDefinition[] = [
   {
     id: REELS_CARDS_MODULE_ID,
     title: "Reels y Cartas",
+  },
+  {
+    id: RULES_WINS_MODULE_ID,
+    title: "Trazados de Victoria",
+  },
+  {
+    id: RULES_COMBINATIONS_MODULE_ID,
+    title: "Reglas y Combinaciones",
   },
 ];
 

@@ -1,5 +1,11 @@
-import { EDITOR_MODULES } from "../config/editorModules.config";
+import {
+  EDITOR_MODULES,
+  REELS_CARDS_MODULE_ID,
+  RULES_COMBINATIONS_MODULE_ID,
+} from "../config/editorModules.config";
+import type { EditorCanvasAspectRatio, EditorLayer } from "../editor.types";
 import { useEditorStore } from "../store/editorStore";
+import { getSymbolWeightPercentages, normalizeSymbolWeights } from "../symbolWeights";
 
 const CARD_PIXEL_SIZE_BY_ASPECT = {
   "9:16": { height: 185.1428571429, width: 154.2857142857 },
@@ -37,18 +43,60 @@ function renderLayerTitle(layer: ReturnType<typeof useEditorStore.getState>["lay
   return <span>{`[${layerTypeLabel(layer.elementType)}] ${layer.label}`}</span>;
 }
 
+function cardSymbolNumber(label: string): number | null {
+  const match = /^Carta\s+(\d+)$/.exec(label);
+  return match ? Number(match[1]) : null;
+}
+
+function getReelCardCatalogItems(
+  layers: EditorLayer[],
+  canvasAspectRatio: EditorCanvasAspectRatio,
+  cardCount: number,
+) {
+  const itemsBySymbol = new Map<number, EditorLayer>();
+
+  for (const layer of layers) {
+    if (
+      layer.canvasAspectRatio !== canvasAspectRatio ||
+      layer.elementType !== "card" ||
+      layer.moduleId !== REELS_CARDS_MODULE_ID
+    ) {
+      continue;
+    }
+
+    const symbolIndex = cardSymbolNumber(layer.label);
+    if (symbolIndex === null || symbolIndex > cardCount || itemsBySymbol.has(symbolIndex)) {
+      continue;
+    }
+
+    itemsBySymbol.set(symbolIndex, layer);
+  }
+
+  return Array.from(itemsBySymbol.entries())
+    .map(([symbolIndex, layer]) => ({ layer, symbolIndex }))
+    .sort((leftItem, rightItem) => leftItem.symbolIndex - rightItem.symbolIndex);
+}
+
 export function LayerPanel() {
   const {
     activeModuleId,
+    cardGroupSettings,
+    canvasAspectRatio,
     getActiveModuleLayers,
+    jackpotSettings,
+    layers: allLayers,
     moveLayer,
     removeLayer,
     reelSettings,
+    scatterSettings,
     selectedLayerId,
     setSelectedLayer,
     setLayerSymbolImages,
+    setSymbolWeight,
+    symbolWeights,
     toggleLayerVisibility,
     updateLayer,
+    wildSettings,
   } = useEditorStore();
   const layers = getActiveModuleLayers().filter(
     (layer) =>
@@ -69,6 +117,92 @@ export function LayerPanel() {
       : null;
   const activeModuleTitle =
     EDITOR_MODULES.find((module) => module.id === activeModuleId)?.title ?? "Layers";
+  const reelCardCatalogItems = getReelCardCatalogItems(
+    allLayers,
+    canvasAspectRatio,
+    reelSettings.cardCount,
+  );
+  const normalizedSymbolWeights = normalizeSymbolWeights(symbolWeights, reelSettings.cardCount);
+  const symbolWeightPercentages = getSymbolWeightPercentages(symbolWeights, reelSettings.cardCount);
+  const groupedSymbolSet = new Set(cardGroupSettings.groups.flat());
+
+  if (activeModuleId === RULES_COMBINATIONS_MODULE_ID) {
+    return (
+      <aside className="slot-editor__panel slot-editor__layer-panel" aria-label="Combinaciones">
+        <span className="slot-editor__panel-label">Reglas</span>
+        <div className="slot-editor__layer-panel-header">
+          <strong className="slot-editor__layer-title">Reglas y Combinaciones</strong>
+        </div>
+        <div className="slot-editor__rules-side-list">
+          {reelCardCatalogItems.length > 0 ? (
+            reelCardCatalogItems
+              .filter(({ symbolIndex }) => !groupedSymbolSet.has(symbolIndex))
+              .map(({ layer, symbolIndex }) => {
+                const isScatter =
+                  scatterSettings.enabled && scatterSettings.scatterSymbols.includes(symbolIndex);
+                const isWild =
+                  wildSettings.enabled && wildSettings.wildSymbols.includes(symbolIndex);
+                const isJackpot =
+                  jackpotSettings.enabled && jackpotSettings.jackpotSymbols.includes(symbolIndex);
+                const thumbnail = layer.symbolImages?.[0];
+
+                return (
+                  <article
+                    className={[
+                      "slot-editor__rules-side-card",
+                      isScatter ? "is-scatter" : "",
+                      isWild ? "is-wild" : "",
+                      isJackpot ? "is-jackpot" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    key={layer.id}
+                  >
+                    <div className="slot-editor__rules-side-thumbnail">
+                      {thumbnail ? <img src={thumbnail.src} alt="" /> : <span>{symbolIndex}</span>}
+                    </div>
+                    <div className="slot-editor__rules-side-body">
+                      <strong>{layer.label}</strong>
+                      <span>
+                        {[
+                          isScatter ? "Scatter" : "",
+                          isWild ? "Wild" : "",
+                          isJackpot ? "Jackpot" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" / ") || "Normal"}
+                      </span>
+                    </div>
+                    <label className="slot-editor__rules-weight-control">
+                      <span>Peso</span>
+                      <input
+                        aria-label={`Peso de ${layer.label}`}
+                        min="0"
+                        step="0.1"
+                        type="number"
+                        value={normalizedSymbolWeights[symbolIndex - 1] ?? 1}
+                        onInput={(event) =>
+                          setSymbolWeight(symbolIndex, Number(event.currentTarget.value))
+                        }
+                      />
+                    </label>
+                    <div className="slot-editor__rules-probability">
+                      <span>%</span>
+                      <strong>{`${(symbolWeightPercentages[symbolIndex - 1] ?? 0).toFixed(2)}%`}</strong>
+                    </div>
+                  </article>
+                );
+              })
+          ) : (
+            <div className="slot-editor__rules-empty is-compact">
+              <strong>Sin cartas</strong>
+              <span>Crea placeholders en Reels y Cartas.</span>
+            </div>
+          )}
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="slot-editor__panel slot-editor__layer-panel" aria-label="Layers">
